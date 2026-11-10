@@ -34,6 +34,11 @@ Abra o `.env` e preencha:
 | `YOUTUBE_API_KEY` | [console.cloud.google.com](https://console.cloud.google.com) → APIs → YouTube Data API v3 |
 | `YOUTUBE_CHANNEL_ID` | URL do seu canal → `about` → copiar ID |
 
+As mesmas configurações podem ser informadas pelo botão **Configurações** no painel.
+Os valores salvos pela interface ficam persistidos localmente e substituem os valores do
+`.env` nas execuções seguintes. O `.env` continua sendo usado como fallback para
+desenvolvimento.
+
 ---
 
 ## 3. Rodar o app (Opção A — só fila pelo chat)

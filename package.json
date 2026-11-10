@@ -9,10 +9,12 @@
     "build": "electron-builder"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
+    "@libsql/client": "^0.18.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.109.0",
     "axios": "^1.6.0",
-    "better-sqlite3": "^9.4.0",
     "dotenv": "^16.4.0",
+    "electron-store": "^7.0.0",
     "install": "^0.13.0",
     "tmi.js": "^1.8.5"
   },

@@ -19,6 +19,7 @@
       <span class="status-pill" id="statusTwitch" data-platform="twitch">Twitch</span>
       <span class="status-pill" id="statusYoutube" data-platform="youtube">YouTube</span>
       <span class="status-pill" id="statusSupabase" data-platform="supabase" style="display:none">💳 Pagamentos</span>
+      <button class="btn btn-ghost btn-settings" id="btn-settings">⚙ Configurações</button>
     </div>
   </header>
 
@@ -53,6 +54,35 @@
   <!-- Toast de VIP (Opção B) -->
   <div class="vip-toast" id="vipToast" aria-live="polite"></div>
 
+  <div class="settings-modal" id="settings-modal">
+    <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="settings-header">
+        <h2 id="settings-title">Configurações</h2>
+        <button class="btn-icon" id="btn-close-settings" aria-label="Fechar">✕</button>
+      </div>
+      <div class="settings-grid">
+        <label>Nick Chess.com<input id="cfg-chess-nick" type="text"></label>
+        <label>Canal Twitch<input id="cfg-twitch-ch" type="text"></label>
+        <label>Client ID Twitch<input id="cfg-twitch-client-id" type="text"></label>
+        <div class="settings-twitch">
+          <span>Status: <strong id="twitch-status" class="badge badge-red">Não conectado</strong></span>
+          <button class="btn btn-ghost" id="btn-twitch-login">Conectar Twitch</button>
+        </div>
+        <label>Chave API YouTube<input id="cfg-yt-key" type="password"></label>
+        <label>ID do canal YouTube<input id="cfg-yt-channel" type="text"></label>
+        <label>Token Mercado Pago<input id="cfg-mp-token" type="password"></label>
+        <label>Valor mínimo (R$)<input id="cfg-mp-min" type="number" min="0" step="0.01"></label>
+        <label>URL Supabase<input id="cfg-supabase-url" type="url"></label>
+        <label>Chave anon Supabase<input id="cfg-supabase-key" type="password"></label>
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-ghost" id="btn-cancel-settings">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-settings">Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
+  <script src="settingsModal.js"></script>
 </body>
 </html>

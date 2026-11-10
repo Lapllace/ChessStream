@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('chessHub', {
 
   // Config
   getConfig:    () => ipcRenderer.invoke('config:get'),
+  settings: {
+    get:         ()     => ipcRenderer.invoke('settings:get'),
+    save:        (data) => ipcRenderer.invoke('settings:save', data),
+    twitchLogin: ()     => ipcRenderer.invoke('twitch:login'),
+  },
 
   // Eventos do main → renderer
   on: (event, callback) => {

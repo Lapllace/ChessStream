@@ -1,6 +1,9 @@
 require('dotenv').config();
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
+const { getSettings, saveSettings, applyToEnv } = require('./settings');
+
+applyToEnv();
 
 const QueueManager = require('../queue/QueueManager');
 const ChessMonitor = require('../chess/ChessMonitor');
@@ -13,6 +16,7 @@ let queueManager;
 let chessMonitor;
 let twitchBot;
 let youtubeBot;
+let supabaseListener;
 
 // ── Janela principal ──────────────────────────────────────────────────────────
 function createWindow() {
@@ -43,30 +47,43 @@ app.whenReady().then(async () => {
 
   queueManager = new QueueManager(db, sendToRenderer);
   chessMonitor  = new ChessMonitor(queueManager, sendToRenderer);
-  twitchBot     = new TwitchBot(queueManager, sendToRenderer);
-  youtubeBot    = new YouTubeBot(queueManager, sendToRenderer);
-
   createWindow();
 
   // Inicia monitoramento do Chess.com (polling a cada 20s)
   chessMonitor.start();
 
-  // Inicia bots de chat
-  if (process.env.TWITCH_OAUTH_TOKEN) await twitchBot.connect();
-  if (process.env.YOUTUBE_API_KEY)    await youtubeBot.connect();
-
-  // Opção B: Supabase Realtime
-  if (process.env.SUPABASE_URL) {
-    const SupabaseListener = require('./supabaseListener');
-    const listener = new SupabaseListener(queueManager, sendToRenderer);
-    listener.start();
-  }
+  await restartBots();
 });
+
+async function restartBots() {
+  twitchBot?.disconnect();
+  youtubeBot?.disconnect();
+  supabaseListener?.stop();
+
+  applyToEnv();
+
+  twitchBot = new TwitchBot(queueManager, sendToRenderer);
+  youtubeBot = new YouTubeBot(queueManager, sendToRenderer);
+
+  if (process.env.TWITCH_OAUTH_TOKEN) await twitchBot.connect();
+  if (process.env.YOUTUBE_API_KEY) await youtubeBot.connect();
+
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+    const SupabaseListener = require('./supabaseListener');
+    supabaseListener = new SupabaseListener(queueManager, sendToRenderer);
+    supabaseListener.start();
+  } else {
+    supabaseListener = null;
+  }
+
+  sendToRenderer('bots:restarted', { ok: true });
+}
 
 app.on('window-all-closed', () => {
   chessMonitor?.stop();
   twitchBot?.disconnect();
   youtubeBot?.disconnect();
+  supabaseListener?.stop();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -102,7 +119,57 @@ ipcMain.handle('queue:resume', () => queueManager.setPaused(false));
 ipcMain.handle('queue:promote', (_, username) => queueManager.promote(username));
 
 ipcMain.handle('config:get', () => ({
-  streamerNick: process.env.CHESS_STREAMER_NICK,
-  twitchChannel: process.env.TWITCH_CHANNEL,
-  supabaseEnabled: !!process.env.SUPABASE_URL,
+  streamerNick: getSettings().chessStreamerNick || process.env.CHESS_STREAMER_NICK,
+  twitchChannel: getSettings().twitchChannel || process.env.TWITCH_CHANNEL,
+  supabaseEnabled: !!(getSettings().supabaseUrl || process.env.SUPABASE_URL),
+}));
+
+ipcMain.handle('settings:get', () => getSettings());
+
+ipcMain.handle('settings:save', async (_, partial) => {
+  saveSettings(partial);
+  await restartBots();
+  return { ok: true };
+});
+
+ipcMain.handle('twitch:login', () => new Promise((resolve) => {
+  const authWindow = new BrowserWindow({
+    width: 500,
+    height: 650,
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  });
+  let resolved = false;
+  const finish = (result) => {
+    if (resolved) return;
+    resolved = true;
+    resolve(result);
+  };
+
+  const clientId = process.env.TWITCH_CLIENT_ID || getSettings().twitchClientId;
+  if (!clientId) {
+    authWindow.close();
+    finish({ ok: false, error: 'TWITCH_CLIENT_ID não configurado' });
+    return;
+  }
+
+  const redirectUri = 'http://localhost';
+  const scope = 'chat:read+chat:edit';
+  const url = `https://id.twitch.tv/oauth2/authorize?client_id=${encodeURIComponent(clientId)}`
+    + `&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}`;
+
+  authWindow.loadURL(url);
+  authWindow.webContents.on('will-redirect', async (event, redirectUrl) => {
+    if (!redirectUrl.startsWith(`${redirectUri}#access_token=`)) return;
+    const token = redirectUrl.split('#access_token=')[1].split('&')[0];
+    saveSettings({ twitchOAuthToken: `oauth:${token}` });
+    authWindow.close();
+    try {
+      await restartBots();
+      finish({ ok: true, token: `oauth:${token}` });
+    } catch (error) {
+      console.error('[Twitch] Erro ao reiniciar após login:', error);
+      finish({ ok: false, error: 'Login concluído, mas não foi possível iniciar o bot.' });
+    }
+  });
+  authWindow.on('closed', () => finish({ ok: false, error: 'Cancelado pelo usuário' }));
 }));

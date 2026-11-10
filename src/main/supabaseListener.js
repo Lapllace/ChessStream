@@ -13,7 +13,7 @@ class SupabaseListener {
   start() {
     console.log('[Supabase] Conectando ao canal Realtime...');
 
-    this.client
+    this.channel = this.client
       .channel('fila_vip')
       .on(
         'postgres_changes',
@@ -24,6 +24,11 @@ class SupabaseListener {
         console.log(`[Supabase] Status: ${status}`);
         this.send('supabase:status', status);
       });
+  }
+
+  stop() {
+    if (this.client && this.channel) this.client.removeChannel(this.channel);
+    this.channel = null;
   }
 
   async handleVipPayment(row) {
