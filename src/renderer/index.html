@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChessStream Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <span class="logo">♟ ChessStream Hub</span>
+      <span class="streamer-nick" id="streamerNick">—</span>
+    </div>
+    <div class="header-right">
+      <span class="status-pill" id="statusTwitch" data-platform="twitch">Twitch</span>
+      <span class="status-pill" id="statusYoutube" data-platform="youtube">YouTube</span>
+      <span class="status-pill" id="statusSupabase" data-platform="supabase" style="display:none">💳 Pagamentos</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Coluna esquerda: jogador atual -->
+    <section class="current-section">
+      <h2 class="section-label">Jogando agora</h2>
+      <div class="current-card" id="currentCard">
+        <div class="current-empty">Nenhum desafiante ativo</div>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" id="btnNext">▶ Próximo</button>
+        <button class="btn btn-ghost"   id="btnSkip">⏭ Pular</button>
+        <button class="btn btn-ghost"   id="btnPause">⏸ Pausar fila</button>
+      </div>
+      <!-- Alerta de fim de partida -->
+      <div class="game-result" id="gameResult" style="display:none"></div>
+    </section>
+
+    <!-- Coluna direita: fila -->
+    <section class="queue-section">
+      <div class="queue-header">
+        <h2 class="section-label">Fila <span class="queue-count" id="queueCount">0</span></h2>
+        <span class="queue-hint">Arraste para reordenar</span>
+      </div>
+      <ul class="queue-list" id="queueList">
+        <li class="queue-empty">Fila vazia — viewers usam <code>!jogar &lt;nick&gt;</code> no chat</li>
+      </ul>
+    </section>
+  </main>
+
+  <!-- Toast de VIP (Opção B) -->
+  <div class="vip-toast" id="vipToast" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

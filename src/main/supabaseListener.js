@@ -1,0 +1,55 @@
+const { createClient } = require('@supabase/supabase-js');
+
+class SupabaseListener {
+  constructor(queueManager, sendToRenderer) {
+    this.queue  = queueManager;
+    this.send   = sendToRenderer;
+    this.client = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY
+    );
+  }
+
+  start() {
+    console.log('[Supabase] Conectando ao canal Realtime...');
+
+    this.client
+      .channel('fila_vip')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'fila_vip' },
+        (payload) => this.handleVipPayment(payload.new)
+      )
+      .subscribe((status) => {
+        console.log(`[Supabase] Status: ${status}`);
+        this.send('supabase:status', status);
+      });
+  }
+
+  async handleVipPayment(row) {
+    const { username, chess_nick, amount_cents } = row;
+    console.log(`[Supabase] Pagamento recebido: ${username} (R$${amount_cents / 100})`);
+
+    // Salva como assinante pago
+    this.queue.db?.upsertSubscriber({
+      username,
+      chessNick: chess_nick,
+      platform:  'payment',
+      subType:   'paid',
+    });
+
+    // Se já estiver na fila, promove; senão, adiciona diretamente
+    const inQueue = this.queue.getQueue().find(p => p.username === username);
+    if (inQueue) {
+      this.queue.promote(username);
+    } else if (chess_nick) {
+      await this.queue.join(username, chess_nick, 'payment');
+      this.queue.promote(username);
+    }
+
+    // Alerta visual/sonoro no painel
+    this.send('queue:vip-alert', { username, chessNick: chess_nick, amount_cents });
+  }
+}
+
+module.exports = SupabaseListener;

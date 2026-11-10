@@ -1,0 +1,61 @@
+# ─── VARIÁVEIS DE AMBIENTE E CREDENCIAIS ──────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+
+# ─── BANCO DE DADOS LOCAL (SQLite) ────────────────────────
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+database.sqlite
+
+# ─── DEPENDÊNCIAS ─────────────────────────────────────────
+node_modules/
+jspm_packages/
+web_modules/
+
+# ─── BUILDS E EMPACOTAMENTO (Electron / Vercel) ───────────
+dist/
+build/
+out/
+release/
+.vercel/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.zip
+
+# ─── LOGS E CACHE ─────────────────────────────────────────
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.npm
+.eslintcache
+.node_repl_history
+
+# ─── SISTEMA OPERACIONAL E EDITORES ───────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+
+# IDEs / Editores
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
