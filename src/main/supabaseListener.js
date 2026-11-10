@@ -1,13 +1,10 @@
-const { createClient } = require('@supabase/supabase-js');
+const { supabase } = require('./database');
 
 class SupabaseListener {
   constructor(queueManager, sendToRenderer) {
     this.queue  = queueManager;
     this.send   = sendToRenderer;
-    this.client = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_ANON_KEY
-    );
+    this.client = supabase;
   }
 
   start() {
@@ -18,7 +15,10 @@ class SupabaseListener {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'fila_vip' },
-        (payload) => this.handleVipPayment(payload.new)
+        (payload) => {
+          this.handleVipPayment(payload.new)
+            .catch((error) => console.error('[Supabase] Erro ao processar pagamento:', error));
+        }
       )
       .subscribe((status) => {
         console.log(`[Supabase] Status: ${status}`);
@@ -36,7 +36,7 @@ class SupabaseListener {
     console.log(`[Supabase] Pagamento recebido: ${username} (R$${amount_cents / 100})`);
 
     // Salva como assinante pago
-    this.queue.db?.upsertSubscriber({
+    this.queue.upsertSubscriber({
       username,
       chessNick: chess_nick,
       platform:  'payment',
@@ -44,12 +44,12 @@ class SupabaseListener {
     });
 
     // Se já estiver na fila, promove; senão, adiciona diretamente
-    const inQueue = this.queue.getQueue().find(p => p.username === username);
+    const inQueue = (await this.queue.getQueue()).find(p => p.username === username);
     if (inQueue) {
-      this.queue.promote(username);
+      await this.queue.promote(username);
     } else if (chess_nick) {
       await this.queue.join(username, chess_nick, 'payment');
-      this.queue.promote(username);
+      await this.queue.promote(username);
     }
 
     // Alerta visual/sonoro no painel

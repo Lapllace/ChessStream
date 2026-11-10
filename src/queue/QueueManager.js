@@ -1,199 +1,310 @@
 /**
- * QueueManager — coração do sistema
+ * QueueManager — fila persistida no Supabase.
  *
- * Prioridades:
- *   1 = Ultra VIP  (convidado direto do streamer)
- *   2 = VIP Pago   (doação Pix / assinante Mercado Pago)
- *   3 = Fidelidade (membro YouTube / sub Twitch)
- *   4 = Padrão     (viewer comum via !jogar)
+ * A API pública mantém os nomes usados pelos bots e pelo renderer, enquanto
+ * os campos persistidos seguem o esquema public.queue.
  */
 
 const axios = require('axios');
+const { supabase } = require('../main/database');
 
 const PRIORITY = {
-  ULTRA_VIP:  1,
-  PAID:       2,
-  MEMBER:     3,
-  STANDARD:   4,
+  ULTRA_VIP: 1,
+  PAID: 2,
+  MEMBER: 3,
+  STANDARD: 4,
 };
 
 class QueueManager {
-  constructor(db, sendToRenderer) {
-    this.db            = db;
-    this.send          = sendToRenderer;
-    this.paused        = false;
+  constructor(sendToRenderer) {
+    this.send = sendToRenderer;
+    this.paused = false;
     this.currentPlayer = null;
+    this.subscribers = new Map();
   }
 
-  // ── Validação do nick no Chess.com ────────────────────────────────────────
-  async validateChessNick(nick) {
-    try {
-      const res = await axios.get(`https://api.chess.com/pub/player/${nick.toLowerCase()}`, {
-        headers: { 'User-Agent': 'ChessStreamHub/1.0' },
-        timeout: 5000,
-      });
-      return res.status === 200 ? res.data : null;
-    } catch {
-      return null;
+  assertSupabase() {
+    if (!supabase) {
+      throw new Error('Supabase não está configurado. Verifique o arquivo .env.');
     }
   }
 
-  // ── Determina prioridade do usuário ───────────────────────────────────────
-  getUserPriority(username, platform) {
-    const sub = this.db.getSubscriber(username);
-    if (!sub) return PRIORITY.STANDARD;
-
-    if (sub.sub_type === 'paid')       return PRIORITY.PAID;
-    if (sub.sub_type === 'twitch_sub') return PRIORITY.MEMBER;
-    if (sub.sub_type === 'yt_member')  return PRIORITY.MEMBER;
-    return PRIORITY.STANDARD;
+  parseNotes(notes) {
+    if (!notes) return {};
+    try {
+      return JSON.parse(notes);
+    } catch {
+      return {};
+    }
   }
 
-  // ── !jogar ────────────────────────────────────────────────────────────────
+  toPlayer(row) {
+    const metadata = this.parseNotes(row.notes);
+    return {
+      ...row,
+      username: row.player_name,
+      chess_nick: row.chess_username,
+      priority: metadata.priority || PRIORITY.STANDARD,
+    };
+  }
+
+  async getQueue() {
+    this.assertSupabase();
+    const { data, error } = await supabase
+      .from('queue')
+      .select('*')
+      .in('status', ['pending', 'playing'])
+      .order('position', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[Supabase] Erro ao buscar fila:', error.message);
+      throw error;
+    }
+    return (data || []).map((row) => this.toPlayer(row));
+  }
+
+  async getQueuePosition(username) {
+    const queue = await this.getQueue();
+    return queue.findIndex((player) => player.username === username) + 1;
+  }
+
+  async position(username) {
+    const position = await this.getQueuePosition(username);
+    if (position === 0) {
+      return { ok: false, msg: `${username}, você não está na fila. Use !jogar <nick>` };
+    }
+    return { ok: true, msg: `${username}, você está na posição #${position} da fila.` };
+  }
+
+  async nextPosition() {
+    const { data, error } = await supabase
+      .from('queue')
+      .select('position')
+      .eq('status', 'pending')
+      .order('position', { ascending: false, nullsFirst: false })
+      .limit(1);
+
+    if (error) throw error;
+    return (data?.[0]?.position || 0) + 1;
+  }
+
+  async addToQueue({ username, chessNick, priority, platform }) {
+    this.assertSupabase();
+    const { data, error } = await supabase
+      .from('queue')
+      .insert({
+        player_name: username,
+        chess_username: chessNick || null,
+        platform: platform || 'chess.com',
+        status: 'pending',
+        position: await this.nextPosition(),
+        notes: JSON.stringify({ priority: priority || PRIORITY.STANDARD }),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[Supabase] Erro ao adicionar à fila:', error.message);
+      throw error;
+    }
+    return this.toPlayer(data);
+  }
+
   async join(username, chessNick, platform) {
     if (this.paused) {
       return { ok: false, msg: '⏸️ A fila está pausada no momento.' };
     }
 
-    // Verifica se já está na fila
-    const queue = this.db.getQueue();
-    if (queue.find(p => p.username === username)) {
-      const pos = this.db.getQueuePosition(username);
-      return { ok: false, msg: `Você já está na fila! Posição: #${pos}` };
+    const queue = await this.getQueue();
+    const existing = queue.find((player) => player.username === username);
+    if (existing) {
+      return {
+        ok: false,
+        msg: `Você já está na fila! Posição: #${queue.indexOf(existing) + 1}`,
+      };
     }
 
-    // Valida nick no Chess.com
     const profile = await this.validateChessNick(chessNick);
     if (!profile) {
       return { ok: false, msg: `❌ Nick "${chessNick}" não encontrado no Chess.com.` };
     }
 
-    const priority = this.getUserPriority(username, platform);
-    this.db.addToQueue({ username, chessNick, priority, platform });
-
-    const pos = this.db.getQueuePosition(username);
-    this.broadcastQueue();
+    const priority = this.getUserPriority(username);
+    await this.addToQueue({ username, chessNick, priority, platform });
+    const position = await this.getQueuePosition(username);
+    await this.broadcastQueue();
 
     const priorityLabel = priority <= 2 ? ' ⭐ (prioridade alta!)' : '';
-    return { ok: true, msg: `✅ ${username} entrou na fila! Posição: #${pos}${priorityLabel}` };
+    return {
+      ok: true,
+      msg: `✅ ${username} entrou na fila! Posição: #${position}${priorityLabel}`,
+    };
   }
 
-  // ── !posicao ──────────────────────────────────────────────────────────────
-  position(username) {
-    const pos = this.db.getQueuePosition(username);
-    if (pos === 0) return { ok: false, msg: `${username}, você não está na fila. Use !jogar <nick>` };
-    return { ok: true, msg: `${username}, você está na posição #${pos} da fila.` };
+  async validateChessNick(nick) {
+    try {
+      const response = await axios.get(
+        `https://api.chess.com/pub/player/${encodeURIComponent(nick.toLowerCase())}`,
+        { headers: { 'User-Agent': 'ChessStreamHub/1.0' }, timeout: 5000 }
+      );
+      return response.status === 200 ? response.data : null;
+    } catch {
+      return null;
+    }
   }
 
-  // ── !sair ─────────────────────────────────────────────────────────────────
-  leave(username) {
-    const pos = this.db.getQueuePosition(username);
-    if (pos === 0) return { ok: false, msg: `${username}, você não está na fila.` };
-    this.db.removeFromQueue(username);
-    this.broadcastQueue();
+  getUserPriority(username) {
+    return this.subscribers.get(username)?.subType === 'paid'
+      ? PRIORITY.PAID
+      : this.subscribers.get(username)
+        ? PRIORITY.MEMBER
+        : PRIORITY.STANDARD;
+  }
+
+  upsertSubscriber({ username, chessNick, platform, subType, expiresAt }) {
+    this.subscribers.set(username, { chessNick, platform, subType, expiresAt });
+  }
+
+  async getSubscriber(username) {
+    return this.subscribers.get(username) || null;
+  }
+
+  async removeFromQueue(username) {
+    this.assertSupabase();
+    const { error } = await supabase
+      .from('queue')
+      .delete()
+      .eq('player_name', username)
+      .in('status', ['pending', 'playing']);
+    if (error) throw error;
+    await this.broadcastQueue();
+  }
+
+  async leave(username) {
+    const position = await this.getQueuePosition(username);
+    if (position === 0) {
+      return { ok: false, msg: `${username}, você não está na fila.` };
+    }
+    await this.removeFromQueue(username);
     return { ok: true, msg: `👋 ${username} saiu da fila.` };
   }
 
-  // ── !proximo (streamer) ───────────────────────────────────────────────────
-  next() {
-    const queue = this.db.getQueue();
-    if (queue.length === 0) return null;
+  async next() {
+    this.assertSupabase();
+    const { data, error } = await supabase
+      .from('queue')
+      .select('*')
+      .eq('status', 'pending')
+      .order('position', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single();
 
-    const player = queue[0];
-    this.currentPlayer = player;
-    this.db.removeFromQueue(player.username);
-    this.broadcastQueue();
+    if (error?.code === 'PGRST116') return null;
+    if (error) throw error;
 
-    this.send('queue:current-player', player);
-    return player;
+    const { data: updated, error: updateError } = await supabase
+      .from('queue')
+      .update({ status: 'playing' })
+      .eq('id', data.id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+
+    this.currentPlayer = this.toPlayer(updated);
+    await this.broadcastQueue();
+    this.send('queue:current-player', this.currentPlayer);
+    return this.currentPlayer;
   }
 
-  // ── !pular (streamer) ─────────────────────────────────────────────────────
-  skip() {
+  async skip() {
     if (this.currentPlayer) {
-      // Move para o fim com prioridade padrão
-      this.db.addToQueue({
-        username:  this.currentPlayer.username,
-        chessNick: this.currentPlayer.chess_nick,
-        priority:  PRIORITY.STANDARD,
-        platform:  this.currentPlayer.platform,
+      await this.updatePlayer(this.currentPlayer.id, {
+        status: 'pending',
+        position: await this.nextPosition(),
+        notes: JSON.stringify({ priority: PRIORITY.STANDARD }),
       });
     }
     return this.next();
   }
 
-  // ── Remover manualmente ───────────────────────────────────────────────────
-  remove(username) {
-    this.db.removeFromQueue(username);
-    this.broadcastQueue();
+  async updatePlayer(id, changes) {
+    this.assertSupabase();
+    const { data, error } = await supabase
+      .from('queue')
+      .update(changes)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return this.toPlayer(data);
   }
 
-  // ── Promover para VIP Pago (Opção B) ─────────────────────────────────────
-  promote(username) {
-    const queue = this.db.getQueue();
-    const player = queue.find(p => p.username === username);
+  async promote(username) {
+    const queue = await this.getQueue();
+    const player = queue.find((item) => item.username === username);
     if (!player) return false;
 
-    this.db.removeFromQueue(username);
-    this.db.addToQueue({
-      username:  player.username,
-      chessNick: player.chess_nick,
-      priority:  PRIORITY.PAID,
-      platform:  player.platform,
+    await this.updatePlayer(player.id, {
+      notes: JSON.stringify({ priority: PRIORITY.PAID }),
     });
-    this.broadcastQueue();
+    await this.broadcastQueue();
     this.send('queue:vip-alert', { username, chessNick: player.chess_nick });
     return true;
   }
 
-  // ── Reordenar via Drag & Drop ─────────────────────────────────────────────
-  reorder(orderedUsernames) {
-    const queue = this.db.getQueue();
-    this.db.clearQueue();
-
-    orderedUsernames.forEach((username, index) => {
-      const player = queue.find(p => p.username === username);
-      if (player) {
-        this.db.addToQueue({
-          username:  player.username,
-          chessNick: player.chess_nick,
-          priority:  player.priority,
-          platform:  player.platform,
-        });
-      }
-    });
-
-    this.broadcastQueue();
+  async remove(username) {
+    await this.removeFromQueue(username);
   }
 
-  // ── Remover por nick do Chess.com (após fim de partida) ───────────────────
-  removeByChessNick(chessNick) {
-    const queue = this.db.getQueue();
-    const player = queue.find(p =>
-      p.chess_nick.toLowerCase() === chessNick.toLowerCase()
+  async reorder(orderedUsernames) {
+    const queue = await this.getQueue();
+    await Promise.all(orderedUsernames.map(async (username, index) => {
+      const player = queue.find((item) => item.username === username);
+      if (player) await this.updatePlayer(player.id, { position: index + 1 });
+    }));
+    await this.broadcastQueue();
+  }
+
+  async removeByChessNick(chessNick) {
+    const queue = await this.getQueue();
+    const player = queue.find((item) =>
+      item.chess_nick?.toLowerCase() === chessNick?.toLowerCase()
     );
-    if (player) {
-      this.db.removeFromQueue(player.username);
-      this.broadcastQueue();
-      return player;
-    }
-    return null;
+    if (!player) return null;
+    await this.removeFromQueue(player.username);
+    return player;
   }
 
-  // ── Controle de pausa ─────────────────────────────────────────────────────
+  async recordMatch(queueId, playerName, opponentName, result, gameUrl = '') {
+    this.assertSupabase();
+    const resultMap = { vitória: 'win', derrota: 'loss', empate: 'draw' };
+    const { error } = await supabase.from('match_history').insert({
+      queue_id: queueId || null,
+      player_name: playerName,
+      opponent_name: opponentName,
+      result: resultMap[result] || result || 'ongoing',
+      game_url: gameUrl || null,
+    });
+    if (error) {
+      console.error('[Supabase] Erro ao registrar partida:', error.message);
+      throw error;
+    }
+  }
+
+  async saveGame({ uuid, opponent, result, playerName = '' }) {
+    return this.recordMatch(null, playerName || 'unknown', opponent, result, uuid);
+  }
+
   setPaused(state) {
     this.paused = state;
     this.send('queue:paused', state);
     return state;
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  getQueue() {
-    return this.db.getQueue();
-  }
-
-  broadcastQueue() {
-    this.send('queue:update', this.db.getQueue());
+  async broadcastQueue() {
+    this.send('queue:update', await this.getQueue());
   }
 }
 

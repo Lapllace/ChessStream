@@ -86,7 +86,7 @@ class YouTubeBot {
 
         // Detecta membership YouTube
         if (isMember) {
-          this.queue.db?.upsertSubscriber({
+          this.queue.upsertSubscriber({
             username,
             platform: 'youtube',
             subType:  'yt_member',
@@ -117,12 +117,12 @@ class YouTubeBot {
     }
 
     else if (message === '!posicao') {
-      const result = this.queue.position(username);
+      const result = await this.queue.position(username);
       this.send('chat:message', { platform: 'youtube', username, text: result.msg });
     }
 
     else if (message === '!sair') {
-      const result = this.queue.leave(username);
+      const result = await this.queue.leave(username);
       this.send('chat:message', { platform: 'youtube', username, text: result.msg });
     }
   }

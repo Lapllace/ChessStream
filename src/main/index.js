@@ -9,7 +9,6 @@ const QueueManager = require('../queue/QueueManager');
 const ChessMonitor = require('../chess/ChessMonitor');
 const TwitchBot    = require('../chat/TwitchBot');
 const YouTubeBot   = require('../chat/YouTubeBot');
-const Database     = require('./database');
 
 let mainWindow;
 let queueManager;
@@ -42,10 +41,7 @@ function createWindow() {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  const db = new Database();
-  db.init();
-
-  queueManager = new QueueManager(db, sendToRenderer);
+  queueManager = new QueueManager(sendToRenderer);
   chessMonitor  = new ChessMonitor(queueManager, sendToRenderer);
   createWindow();
 
@@ -53,6 +49,8 @@ app.whenReady().then(async () => {
   chessMonitor.start();
 
   await restartBots();
+}).catch((error) => {
+  console.error('[App] Erro ao iniciar o Electron:', error);
 });
 
 async function restartBots() {
@@ -68,7 +66,9 @@ async function restartBots() {
   if (process.env.TWITCH_OAUTH_TOKEN) await twitchBot.connect();
   if (process.env.YOUTUBE_API_KEY) await youtubeBot.connect();
 
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  if (supabaseUrl && supabaseKey) {
     const SupabaseListener = require('./supabaseListener');
     supabaseListener = new SupabaseListener(queueManager, sendToRenderer);
     supabaseListener.start();
@@ -95,10 +95,10 @@ function sendToRenderer(event, payload) {
 }
 
 // ── IPC: ações do painel ──────────────────────────────────────────────────────
-ipcMain.handle('queue:get', () => queueManager.getQueue());
+ipcMain.handle('queue:get', async () => queueManager.getQueue());
 
-ipcMain.handle('queue:next', () => {
-  const player = queueManager.next();
+ipcMain.handle('queue:next', async () => {
+  const player = await queueManager.next();
   if (player) {
     // Abre Chess.com já com o oponente selecionado
     shell.openExternal(`https://www.chess.com/play/online/new?opponent=${player.chessNick}`);
@@ -106,22 +106,26 @@ ipcMain.handle('queue:next', () => {
   return player;
 });
 
-ipcMain.handle('queue:skip', () => queueManager.skip());
+ipcMain.handle('queue:skip', async () => queueManager.skip());
 
-ipcMain.handle('queue:remove', (_, username) => queueManager.remove(username));
+ipcMain.handle('queue:remove', async (_, username) => queueManager.remove(username));
 
-ipcMain.handle('queue:reorder', (_, orderedIds) => queueManager.reorder(orderedIds));
+ipcMain.handle('queue:reorder', async (_, orderedIds) => queueManager.reorder(orderedIds));
 
 ipcMain.handle('queue:pause', () => queueManager.setPaused(true));
 
 ipcMain.handle('queue:resume', () => queueManager.setPaused(false));
 
-ipcMain.handle('queue:promote', (_, username) => queueManager.promote(username));
+ipcMain.handle('queue:promote', async (_, username) => queueManager.promote(username));
 
 ipcMain.handle('config:get', () => ({
   streamerNick: getSettings().chessStreamerNick || process.env.CHESS_STREAMER_NICK,
   twitchChannel: getSettings().twitchChannel || process.env.TWITCH_CHANNEL,
-  supabaseEnabled: !!(getSettings().supabaseUrl || process.env.SUPABASE_URL),
+  supabaseEnabled: !!(
+    getSettings().supabaseUrl
+    || process.env.NEXT_PUBLIC_SUPABASE_URL
+    || process.env.SUPABASE_URL
+  ),
 }));
 
 ipcMain.handle('settings:get', () => getSettings());

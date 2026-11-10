@@ -59,14 +59,19 @@ class ChessMonitor {
         const result       = this.parseResult(game, whiteUser === this.streamer);
 
         // Verifica se o oponente está na fila e remove
-        const removed = this.queue.removeByChessNick(opponentNick);
+        const removed = await this.queue.removeByChessNick(opponentNick);
         if (removed) {
           console.log(`[Chess] Partida encerrada contra ${opponentNick} — removido da fila.`);
           this.send('chess:game-ended', { opponent: opponentNick, result });
         }
 
         // Salva no histórico para evitar reprocessar
-        this.queue.db?.saveGame({ uuid, opponent: opponentNick, result });
+        await this.queue.saveGame({
+          uuid,
+          opponent: opponentNick,
+          result,
+          playerName: this.streamer,
+        });
       }
     } catch (err) {
       console.error('[Chess] Erro no polling:', err.message);

@@ -25,7 +25,8 @@ class TwitchBot {
 
     this.client.on('message', (channel, tags, message, self) => {
       if (self) return;
-      this.handleMessage(channel, tags, message.trim());
+      this.handleMessage(channel, tags, message.trim())
+        .catch((error) => console.error('[Twitch] Erro ao processar mensagem:', error));
     });
 
     this.client.on('connected', () => {
@@ -50,7 +51,7 @@ class TwitchBot {
 
     // Detecta membership Twitch (sub) para prioridade automática
     if (tags.subscriber) {
-      this.queue.db?.upsertSubscriber({
+      this.queue.upsertSubscriber({
         username,
         platform: 'twitch',
         subType: 'twitch_sub',
@@ -69,12 +70,12 @@ class TwitchBot {
     }
 
     else if (message === '!posicao') {
-      const result = this.queue.position(username);
+      const result = await this.queue.position(username);
       this.say(channel, `@${username} ${result.msg}`);
     }
 
     else if (message === '!sair') {
-      const result = this.queue.leave(username);
+      const result = await this.queue.leave(username);
       this.say(channel, `@${username} ${result.msg}`);
     }
 
@@ -92,7 +93,7 @@ class TwitchBot {
     }
 
     else if (message === '!pular') {
-      const player = this.queue.skip();
+      const player = await this.queue.skip();
       if (player) {
         this.say(channel, `⏭️ Próximo: @${player.username} (${player.chess_nick})`);
       }
