@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "build:electron": "electron-builder"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
