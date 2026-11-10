@@ -63,13 +63,19 @@
       <div class="settings-grid">
         <label>Nick Chess.com<input id="cfg-chess-nick" type="text"></label>
         <label>Canal Twitch<input id="cfg-twitch-ch" type="text"></label>
+        <label>Username Twitch (bot)<input id="cfg-twitch-username" type="text"
+          placeholder="Deixe vazio para usar o canal como username"></label>
         <label>Client ID Twitch<input id="cfg-twitch-client-id" type="text"></label>
         <div class="settings-twitch">
           <span>Status: <strong id="twitch-status" class="badge badge-red">Não conectado</strong></span>
           <button class="btn btn-ghost" id="btn-twitch-login">Conectar Twitch</button>
         </div>
-        <label>Chave API YouTube<input id="cfg-yt-key" type="password"></label>
-        <label>ID do canal YouTube<input id="cfg-yt-channel" type="text"></label>
+        <div class="settings-youtube">
+          <span>Status: <strong id="youtube-status" class="badge badge-red">Não conectado</strong></span>
+          <button type="button" class="btn btn-ghost" id="btn-google-login">
+            Entrar com o Google
+          </button>
+        </div>
         <label>Token Mercado Pago<input id="cfg-mp-token" type="password"></label>
         <label>Valor mínimo (R$)<input id="cfg-mp-min" type="number" min="0" step="0.01"></label>
         <label>URL Supabase<input id="cfg-supabase-url" type="url"></label>

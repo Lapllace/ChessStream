@@ -1,5 +1,7 @@
 require('dotenv').config();
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const http = require('http');
+const { google } = require('googleapis');
 const path = require('path');
 const { getSettings, saveSettings, applyToEnv } = require('./settings');
 
@@ -16,6 +18,12 @@ let chessMonitor;
 let twitchBot;
 let youtubeBot;
 let supabaseListener;
+
+const YOUTUBE_SCOPES = [
+  'https://www.googleapis.com/auth/youtube.readonly',
+  'https://www.googleapis.com/auth/youtube.force-ssl',
+];
+const YOUTUBE_REDIRECT_URI = 'http://localhost:42813/oauth2callback';
 
 // ── Janela principal ──────────────────────────────────────────────────────────
 function createWindow() {
@@ -64,7 +72,7 @@ async function restartBots() {
   youtubeBot = new YouTubeBot(queueManager, sendToRenderer);
 
   if (process.env.TWITCH_OAUTH_TOKEN) await twitchBot.connect();
-  if (process.env.YOUTUBE_API_KEY) await youtubeBot.connect();
+  if (process.env.YOUTUBE_ACCESS_TOKEN) await youtubeBot.connect();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
@@ -175,5 +183,94 @@ ipcMain.handle('twitch:login', () => new Promise((resolve) => {
       finish({ ok: false, error: 'Login concluído, mas não foi possível iniciar o bot.' });
     }
   });
+  authWindow.on('closed', () => finish({ ok: false, error: 'Cancelado pelo usuário' }));
+}));
+
+ipcMain.handle('google:login', () => new Promise((resolve) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    resolve({
+      ok: false,
+      error: 'GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET não configurados.',
+    });
+    return;
+  }
+
+  const oauth2Client = new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    YOUTUBE_REDIRECT_URI
+  );
+  const authUrl = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: YOUTUBE_SCOPES,
+  });
+  const authWindow = new BrowserWindow({
+    width: 500,
+    height: 700,
+    title: 'Login com Google',
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  });
+  let settled = false;
+  let server;
+
+  const finish = (result) => {
+    if (settled) return;
+    settled = true;
+    server?.close();
+    if (!authWindow.isDestroyed()) authWindow.close();
+    resolve(result);
+  };
+
+  server = http.createServer(async (request, response) => {
+    const callbackUrl = new URL(request.url, YOUTUBE_REDIRECT_URI);
+    const error = callbackUrl.searchParams.get('error');
+    const code = callbackUrl.searchParams.get('code');
+
+    if (error) {
+      response.end('<h2>Login cancelado. Pode fechar esta janela.</h2>');
+      finish({ ok: false, error: `Google: ${error}` });
+      return;
+    }
+    if (!code) {
+      response.end('<h2>Callback OAuth inválido.</h2>');
+      return;
+    }
+
+    response.end('<h2>Autorizado! Pode fechar esta janela.</h2>');
+    try {
+      const { tokens } = await oauth2Client.getToken(code);
+      oauth2Client.setCredentials(tokens);
+      const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+      const { data } = await youtube.channels.list({ part: 'snippet', mine: true });
+      const channel = data.items?.[0];
+      if (!channel) throw new Error('Nenhum canal YouTube foi encontrado nesta conta.');
+
+      saveSettings({
+        youtubeAccessToken: tokens.access_token || '',
+        youtubeRefreshToken: tokens.refresh_token || getSettings().youtubeRefreshToken || '',
+        youtubeChannelId: channel.id,
+        youtubeChannelName: channel.snippet?.title || '',
+      });
+      applyToEnv();
+      await restartBots();
+      finish({
+        ok: true,
+        channelName: channel.snippet?.title || '',
+        channelId: channel.id,
+      });
+    } catch (requestError) {
+      console.error('[Google] Erro no login do YouTube:', requestError);
+      finish({ ok: false, error: requestError.message });
+    }
+  });
+
+  server.once('error', (error) => {
+    console.error('[Google] Não foi possível abrir a porta OAuth:', error);
+    finish({ ok: false, error: 'A porta local do login Google está indisponível.' });
+  });
+  server.listen(42813, '127.0.0.1', () => authWindow.loadURL(authUrl));
   authWindow.on('closed', () => finish({ ok: false, error: 'Cancelado pelo usuário' }));
 }));

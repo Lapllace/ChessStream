@@ -10,13 +10,11 @@
     "build:electron": "electron-builder"
   },
   "dependencies": {
-    "@libsql/client": "^0.18.0",
-    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
     "axios": "^1.6.0",
     "dotenv": "^16.6.1",
     "electron-store": "^11.0.2",
-    "install": "^0.13.0",
+    "googleapis": "^178.0.0",
     "tmi.js": "^1.8.5",
     "ws": "^8.22.2"
   },

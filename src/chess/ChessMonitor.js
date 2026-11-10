@@ -6,12 +6,12 @@ class ChessMonitor {
   constructor(queueManager, sendToRenderer) {
     this.queue      = queueManager;
     this.send       = sendToRenderer;
-    this.streamer   = (process.env.CHESS_STREAMER_NICK || '').toLowerCase();
     this.timer      = null;
     this.knownGames = new Set(); // UUIDs já processados nesta sessão
   }
 
   start() {
+    this.streamer = (process.env.CHESS_STREAMER_NICK || '').toLowerCase();
     if (!this.streamer) {
       console.warn('[Chess] CHESS_STREAMER_NICK não configurado — monitor desativado.');
       return;
@@ -45,6 +45,10 @@ class ChessMonitor {
         const uuid = game.uuid;
         if (!uuid || this.knownGames.has(uuid)) continue;
         this.knownGames.add(uuid);
+        if (this.knownGames.size > 500) {
+          const first = this.knownGames.values().next().value;
+          this.knownGames.delete(first);
+        }
 
         // Verifica se a partida já terminou
         if (!game.end_time) continue;

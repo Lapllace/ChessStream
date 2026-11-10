@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('chessHub', {
     get:         ()     => ipcRenderer.invoke('settings:get'),
     save:        (data) => ipcRenderer.invoke('settings:save', data),
     twitchLogin: ()     => ipcRenderer.invoke('twitch:login'),
+    googleLogin: () => ipcRenderer.invoke('google:login'),
   },
 
   // Eventos do main → renderer

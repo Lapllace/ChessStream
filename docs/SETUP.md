@@ -31,13 +31,17 @@ Abra o `.env` e preencha:
 | `CHESS_STREAMER_NICK` | Seu nick no Chess.com |
 | `TWITCH_OAUTH_TOKEN` | [twitchapps.com/tmi](https://twitchapps.com/tmi/) |
 | `TWITCH_CHANNEL` | Nome do seu canal (sem #) |
-| `YOUTUBE_API_KEY` | [console.cloud.google.com](https://console.cloud.google.com) → APIs → YouTube Data API v3 |
 | `YOUTUBE_CHANNEL_ID` | URL do seu canal → `about` → copiar ID |
+| `GOOGLE_CLIENT_ID` | Credencial OAuth de aplicativo desktop no Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | Credencial OAuth de aplicativo desktop no Google Cloud Console |
 
 As mesmas configurações podem ser informadas pelo botão **Configurações** no painel.
 Os valores salvos pela interface ficam persistidos localmente e substituem os valores do
 `.env` nas execuções seguintes. O `.env` continua sendo usado como fallback para
 desenvolvimento.
+
+Para conectar o YouTube, abra **Configurações → Entrar com o Google**. O canal
+é detectado automaticamente e os tokens OAuth são persistidos localmente.
 
 ---
 

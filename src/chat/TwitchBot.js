@@ -7,8 +7,8 @@ class TwitchBot {
     this.client = null;
 
     this.channel = process.env.TWITCH_CHANNEL;
-    this.username = process.env.TWITCH_USERNAME;
     this.token    = process.env.TWITCH_OAUTH_TOKEN;
+    this.username = process.env.TWITCH_USERNAME || this.channel || 'justinfan12345';
   }
 
   async connect() {
@@ -47,8 +47,6 @@ class TwitchBot {
 
   async handleMessage(channel, tags, message) {
     const username = tags['display-name'] || tags.username;
-    const isSubOrVip = tags.subscriber || tags['user-type'] === 'mod';
-
     // Detecta membership Twitch (sub) para prioridade automática
     if (tags.subscriber) {
       this.queue.upsertSubscriber({
@@ -86,6 +84,10 @@ class TwitchBot {
     if (message === '!proximo') {
       const player = await this.queue.next();
       if (player) {
+        const { shell } = require('electron');
+        shell.openExternal(
+          `https://www.chess.com/play/online/new?opponent=${player.chess_nick}`
+        );
         this.say(channel, `🎯 Próximo desafiante: @${player.username} (${player.chess_nick})! Aceite o desafio no Chess.com!`);
       } else {
         this.say(channel, 'A fila está vazia!');

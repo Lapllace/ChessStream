@@ -1,12 +1,13 @@
-const axios = require('axios');
+const { google } = require('googleapis');
+const { saveSettings } = require('../main/settings');
 
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 15000;
 
 class YouTubeBot {
   constructor(queueManager, sendToRenderer) {
     this.queue      = queueManager;
     this.send       = sendToRenderer;
-    this.apiKey     = process.env.YOUTUBE_API_KEY;
+    this.youtube    = null;
     this.channelId  = process.env.YOUTUBE_CHANNEL_ID;
     this.liveChatId = process.env.YOUTUBE_LIVE_CHAT_ID;
     this.pageToken  = null;
@@ -14,10 +15,24 @@ class YouTubeBot {
   }
 
   async connect() {
-    if (!this.apiKey) {
-      console.warn('[YouTube] API Key não configurada — bot desativado.');
+    if (!process.env.YOUTUBE_ACCESS_TOKEN) {
+      console.warn('[YouTube] Login Google não configurado — bot desativado.');
       return;
     }
+
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET
+    );
+    oauth2Client.setCredentials({
+      access_token: process.env.YOUTUBE_ACCESS_TOKEN,
+      refresh_token: process.env.YOUTUBE_REFRESH_TOKEN,
+    });
+    oauth2Client.on('tokens', (tokens) => {
+      if (tokens.access_token) saveSettings({ youtubeAccessToken: tokens.access_token });
+      if (tokens.refresh_token) saveSettings({ youtubeRefreshToken: tokens.refresh_token });
+    });
+    this.youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
     // Se não tiver o liveChatId no .env, tenta descobrir automaticamente
     if (!this.liveChatId) {
@@ -41,12 +56,9 @@ class YouTubeBot {
 
   async discoverLiveChatId() {
     try {
-      const { data } = await axios.get('https://www.googleapis.com/youtube/v3/liveBroadcasts', {
-        params: {
-          part:        'snippet',
-          broadcastStatus: 'active',
-          key:         this.apiKey,
-        },
+      const { data } = await this.youtube.liveBroadcasts.list({
+        part: ['snippet'],
+        broadcastStatus: 'active',
       });
 
       const broadcast = data.items?.[0];
@@ -64,16 +76,12 @@ class YouTubeBot {
 
     try {
       const params = {
-        part:       'snippet,authorDetails',
+        part: ['snippet', 'authorDetails'],
         liveChatId: this.liveChatId,
-        key:        this.apiKey,
       };
       if (this.pageToken) params.pageToken = this.pageToken;
 
-      const { data } = await axios.get(
-        'https://www.googleapis.com/youtube/v3/liveChat/messages',
-        { params }
-      );
+      const { data } = await this.youtube.liveChat.messages.list(params);
 
       this.pageToken = data.nextPageToken;
 

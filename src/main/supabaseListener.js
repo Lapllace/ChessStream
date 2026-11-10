@@ -27,7 +27,9 @@ class SupabaseListener {
   }
 
   stop() {
-    if (this.client && this.channel) this.client.removeChannel(this.channel);
+    if (this.channel) {
+      this.channel.unsubscribe();
+    }
     this.channel = null;
   }
 

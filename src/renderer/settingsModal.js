@@ -6,8 +6,7 @@ async function openSettings() {
     'cfg-chess-nick': config.chessStreamerNick,
     'cfg-twitch-client-id': config.twitchClientId,
     'cfg-twitch-ch': config.twitchChannel,
-    'cfg-yt-key': config.youtubeApiKey,
-    'cfg-yt-channel': config.youtubeChannelId,
+    'cfg-twitch-username': config.twitchUsername,
     'cfg-mp-token': config.mpAccessToken,
     'cfg-mp-min': config.mpMinValue || 5,
     'cfg-supabase-url': config.supabaseUrl,
@@ -19,6 +18,14 @@ async function openSettings() {
   twitchStatus.textContent = config.twitchOAuthToken ? 'Conectado' : 'Não conectado';
   twitchStatus.className = config.twitchOAuthToken ? 'badge badge-green' : 'badge badge-red';
   $('settings-modal').classList.add('open');
+
+  const youtubeStatus = $('youtube-status');
+  youtubeStatus.textContent = config.youtubeAccessToken
+    ? `Conectado: ${config.youtubeChannelName || config.youtubeChannelId}`
+    : 'Não conectado';
+  youtubeStatus.className = config.youtubeAccessToken
+    ? 'badge badge-green'
+    : 'badge badge-red';
 }
 
 async function saveSettings() {
@@ -30,8 +37,7 @@ async function saveSettings() {
       chessStreamerNick: $('cfg-chess-nick').value.trim(),
       twitchClientId: $('cfg-twitch-client-id').value.trim(),
       twitchChannel: $('cfg-twitch-ch').value.trim(),
-      youtubeApiKey: $('cfg-yt-key').value.trim(),
-      youtubeChannelId: $('cfg-yt-channel').value.trim(),
+      twitchUsername: $('cfg-twitch-username').value.trim(),
       mpAccessToken: $('cfg-mp-token').value.trim(),
       mpMinValue: parseFloat($('cfg-mp-min').value) || 5,
       supabaseUrl: $('cfg-supabase-url').value.trim(),
@@ -76,4 +82,27 @@ $('btn-close-settings').addEventListener('click', closeSettings);
 $('btn-cancel-settings').addEventListener('click', closeSettings);
 $('btn-save-settings').addEventListener('click', saveSettings);
 $('btn-twitch-login').addEventListener('click', loginTwitch);
+async function loginGoogle() {
+  const button = $('btn-google-login');
+  const status = $('youtube-status');
+  button.disabled = true;
+  button.textContent = 'Aguardando login...';
+  try {
+    const result = await settingsApi.googleLogin();
+    status.textContent = result.ok
+      ? `Conectado: ${result.channelName}`
+      : 'Falhou';
+    status.className = result.ok ? 'badge badge-green' : 'badge badge-red';
+    button.textContent = result.ok ? 'Trocar conta Google' : 'Tentar novamente';
+  } catch (error) {
+    console.error('[Settings] Erro no login Google:', error);
+    status.textContent = 'Falhou';
+    status.className = 'badge badge-red';
+    button.textContent = 'Tentar novamente';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$('btn-google-login').addEventListener('click', loginGoogle);
 window.chessHub.on('bots:restarted', () => console.log('[Settings] Bots reiniciados.'));
