@@ -25,6 +25,10 @@
   "build": {
     "appId": "com.chessstream.hub",
     "productName": "ChessStream Hub",
+    "files": [
+      "src/**/*",
+      "assets/client_secret_532294206568-hhdb5lhl6gsr24lfblngdcv8e18uj358.apps.googleusercontent.com.json"
+    ],
     "directories": {
       "output": "dist"
     },

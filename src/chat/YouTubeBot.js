@@ -1,12 +1,12 @@
 const { google } = require('googleapis');
-const { saveSettings } = require('../main/settings');
 
 const POLL_INTERVAL_MS = 15000;
 
 class YouTubeBot {
-  constructor(queueManager, sendToRenderer) {
+  constructor(queueManager, sendToRenderer, oauth2Client = null) {
     this.queue      = queueManager;
     this.send       = sendToRenderer;
+    this.oauth2Client = oauth2Client;
     this.youtube    = null;
     this.channelId  = process.env.YOUTUBE_CHANNEL_ID;
     this.liveChatId = process.env.YOUTUBE_LIVE_CHAT_ID;
@@ -15,24 +15,12 @@ class YouTubeBot {
   }
 
   async connect() {
-    if (!process.env.YOUTUBE_ACCESS_TOKEN) {
+    if (!this.oauth2Client) {
       console.warn('[YouTube] Login Google não configurado — bot desativado.');
       return;
     }
 
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET
-    );
-    oauth2Client.setCredentials({
-      access_token: process.env.YOUTUBE_ACCESS_TOKEN,
-      refresh_token: process.env.YOUTUBE_REFRESH_TOKEN,
-    });
-    oauth2Client.on('tokens', (tokens) => {
-      if (tokens.access_token) saveSettings({ youtubeAccessToken: tokens.access_token });
-      if (tokens.refresh_token) saveSettings({ youtubeRefreshToken: tokens.refresh_token });
-    });
-    this.youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+    this.youtube = google.youtube({ version: 'v3', auth: this.oauth2Client });
 
     // Se não tiver o liveChatId no .env, tenta descobrir automaticamente
     if (!this.liveChatId) {

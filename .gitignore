@@ -6,6 +6,7 @@
 .env.production.local
 *.pem
 *.key
+assets/client_secret_*.json
 
 # ─── BANCO DE DADOS LOCAL (SQLite) ────────────────────────
 *.db

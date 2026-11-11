@@ -45,7 +45,11 @@ async function saveSettings() {
     });
     if (!result.ok) throw new Error('Não foi possível salvar as configurações.');
     button.textContent = 'Salvo!';
-    setTimeout(closeSettings, 800);
+    setTimeout(() => {
+      closeSettings();
+      button.textContent = 'Salvar';
+      button.disabled = false;
+    }, 800);
   } catch (error) {
     console.error('[Settings] Erro ao salvar:', error);
     button.textContent = 'Erro ao salvar';
@@ -70,6 +74,9 @@ async function loginTwitch() {
     button.textContent = 'Tentar novamente';
   } finally {
     button.disabled = false;
+    if (!result?.ok) {
+      button.textContent = 'Entrar com o Google';
+    }
   }
 }
 
@@ -87,8 +94,9 @@ async function loginGoogle() {
   const status = $('youtube-status');
   button.disabled = true;
   button.textContent = 'Aguardando login...';
+  let result;
   try {
-    const result = await settingsApi.googleLogin();
+    result = await settingsApi.googleLogin();
     status.textContent = result.ok
       ? `Conectado: ${result.channelName}`
       : 'Falhou';
