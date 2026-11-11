@@ -12,15 +12,18 @@ class TwitchBot {
   }
 
   async connect() {
-    if (!this.token || !this.channel) {
-      console.warn('[Twitch] Credenciais não configuradas — bot desativado.');
+    const token = this.token || process.env.TWITCH_OAUTH_TOKEN || '';
+    const channel = this.channel || process.env.TWITCH_CHANNEL || '';
+
+    if (!token || !token.startsWith('oauth:') || !channel) {
+      console.log('[Twitch] Token ou canal não configurado — bot não iniciado.');
       return;
     }
 
     this.client = new tmi.Client({
       options:  { debug: false },
-      identity: { username: this.username, password: this.token },
-      channels: [this.channel],
+      identity: { username: this.username, password: token },
+      channels: [channel],
     });
 
     this.client.on('message', (channel, tags, message, self) => {
@@ -38,7 +41,13 @@ class TwitchBot {
       this.send('chat:status', { platform: 'twitch', connected: false });
     });
 
-    await this.client.connect();
+    try {
+      await this.client.connect();
+    } catch (error) {
+      console.error('[Chess] Erro de autenticação na Twitch:', error.message);
+      this.send('chat:status', { platform: 'twitch', connected: false });
+      this.client = null;
+    }
   }
 
   disconnect() {

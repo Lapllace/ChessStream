@@ -5,85 +5,117 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ChessStream Hub</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Header -->
-  <header class="header">
-    <div class="header-left">
-      <span class="logo">♟ ChessStream Hub</span>
-      <span class="streamer-nick" id="streamerNick">—</span>
+  <canvas id="particle-canvas"></canvas>
+
+  <div id="intro-overlay" aria-hidden="true">
+    <div class="shockwave" id="shockwave"></div>
+    <div class="brilliant-badge" id="brilliant-badge">
+      <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="46" fill="#16e0bd" stroke="#fff" stroke-width="4" />
+        <path d="M34 24h10l-1 30h-8zM56 24h10l-1 30h-8z" fill="#fff" />
+        <rect x="35" y="60" width="8" height="8" rx="1" fill="#fff" />
+        <rect x="57" y="60" width="8" height="8" rx="1" fill="#fff" />
+      </svg>
     </div>
-    <div class="header-right">
-      <span class="status-pill" id="statusTwitch" data-platform="twitch">Twitch</span>
-      <span class="status-pill" id="statusYoutube" data-platform="youtube">YouTube</span>
-      <span class="status-pill" id="statusSupabase" data-platform="supabase" style="display:none">💳 Pagamentos</span>
-      <button class="btn btn-ghost btn-settings" id="btn-settings">⚙ Configurações</button>
-    </div>
-  </header>
+  </div>
 
-  <main class="layout">
-    <!-- Coluna esquerda: jogador atual -->
-    <section class="current-section">
-      <h2 class="section-label">Jogando agora</h2>
-      <div class="current-card" id="currentCard">
-        <div class="current-empty">Nenhum desafiante ativo</div>
-      </div>
-      <div class="controls">
-        <button class="btn btn-primary" id="btnNext">▶ Próximo</button>
-        <button class="btn btn-ghost"   id="btnSkip">⏭ Pular</button>
-        <button class="btn btn-ghost"   id="btnPause">⏸ Pausar fila</button>
-      </div>
-      <!-- Alerta de fim de partida -->
-      <div class="game-result" id="gameResult" style="display:none"></div>
-    </section>
+  <nav class="sidebar" aria-label="Navegação principal">
+    <div class="nav-icon active" title="Fila">♟</div>
+    <button class="nav-icon" id="btn-settings" title="Configurações" type="button">⚙</button>
+  </nav>
 
-    <!-- Coluna direita: fila -->
-    <section class="queue-section">
-      <div class="queue-header">
-        <h2 class="section-label">Fila <span class="queue-count" id="queueCount">0</span></h2>
-        <span class="queue-hint">Arraste para reordenar</span>
+  <div class="app-wrapper" id="app-wrapper">
+    <header class="header">
+      <div class="header-left">
+        <span class="logo">♟ ChessStream</span>
+        <span class="streamer-nick" id="streamerNick">—</span>
       </div>
-      <ul class="queue-list" id="queueList">
-        <li class="queue-empty">Fila vazia — viewers usam <code>!jogar &lt;nick&gt;</code> no chat</li>
-      </ul>
-    </section>
-  </main>
+      <div class="header-right">
+        <span class="status-pill" id="statusTwitch" data-platform="twitch">TWITCH</span>
+        <span class="status-pill" id="statusYoutube" data-platform="youtube">YOUTUBE</span>
+        <span class="status-pill" id="statusSupabase" data-platform="supabase" style="display:none">SUPABASE</span>
+      </div>
+    </header>
 
-  <!-- Toast de VIP (Opção B) -->
+    <main class="layout">
+      <section class="center-stage current-section">
+        <h2 class="section-label">Jogando agora</h2>
+        <div class="current-card" id="currentCard">
+          <div class="current-empty">Nenhum desafiante ativo</div>
+        </div>
+        <div class="game-result" id="gameResult" style="display:none"></div>
+      </section>
+
+      <div class="right-column">
+        <section class="queue-box queue-section">
+          <div class="queue-header">
+            <h2 class="section-label">Fila <span class="queue-count" id="queueCount">0</span></h2>
+            <span class="queue-hint">Arraste para reordenar</span>
+          </div>
+          <ul class="queue-list" id="queueList">
+            <li class="queue-empty">Fila vazia — viewers usam <code>!jogar &lt;nick&gt;</code> no chat</li>
+          </ul>
+        </section>
+
+        <section class="controls-box">
+          <h2 class="section-label">Controles</h2>
+          <div class="controls">
+            <button class="btn btn-primary" id="btnNext">▶ Chamar próximo</button>
+            <button class="btn btn-ghost" id="btnSkip">⏭ Gerenciar fila</button>
+            <button class="btn btn-ghost" id="btnPause">⏸ Pausar fila</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
   <div class="vip-toast" id="vipToast" aria-live="polite"></div>
 
   <div class="settings-modal" id="settings-modal">
     <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="settings-header">
         <h2 id="settings-title">Configurações</h2>
-        <button class="btn-icon" id="btn-close-settings" aria-label="Fechar">✕</button>
+        <button class="btn-icon" id="btn-close-settings" aria-label="Fechar" type="button">✕</button>
+      </div>
+      <div class="settings-tabs">
+        <button class="tab-btn" data-target="chess" type="button">Chess &amp; Twitch</button>
+        <button class="tab-btn" data-target="youtube" type="button">YouTube</button>
+        <button class="tab-btn" data-target="payments" type="button">Pagamentos</button>
+        <button class="tab-btn" data-target="cloud" type="button">Nuvem</button>
       </div>
       <div class="settings-grid">
-        <label>Nick Chess.com<input id="cfg-chess-nick" type="text"></label>
-        <label>Canal Twitch<input id="cfg-twitch-ch" type="text"></label>
-        <label>Username Twitch (bot)<input id="cfg-twitch-username" type="text"
-          placeholder="Deixe vazio para usar o canal como username"></label>
-        <label>Client ID Twitch<input id="cfg-twitch-client-id" type="text"></label>
-        <div class="settings-twitch">
-          <span>Status: <strong id="twitch-status" class="badge badge-red">Não conectado</strong></span>
-          <button class="btn btn-ghost" id="btn-twitch-login">Conectar Twitch</button>
+        <div class="settings-tab" data-tab="chess">
+          <label>Nick Chess.com<input id="cfg-chess-nick" type="text"></label>
+          <label>Canal Twitch<input id="cfg-twitch-ch" type="text"></label>
+          <label>Username Twitch (bot)<input id="cfg-twitch-username" type="text" placeholder="Deixe vazio para usar o canal como username"></label>
+          <label>Client ID Twitch<input id="cfg-twitch-client-id" type="text" placeholder="Obtido no dev.twitch.tv"></label>
+          <div class="settings-twitch">
+            <span>Status: <strong id="twitch-status" class="badge badge-red">Não conectado</strong></span>
+            <button class="btn btn-ghost" id="btn-twitch-login" type="button">Conectar Twitch</button>
+          </div>
         </div>
-        <div class="settings-youtube">
-          <span>Status: <strong id="youtube-status" class="badge badge-red">Não conectado</strong></span>
-          <button type="button" class="btn btn-ghost" id="btn-google-login">
-            Entrar com o Google
-          </button>
+        <div class="settings-tab" data-tab="youtube">
+          <div class="settings-youtube">
+            <span>Status: <strong id="youtube-status" class="badge badge-red">Não conectado</strong></span>
+            <button type="button" class="btn btn-ghost" id="btn-google-login">Entrar com o Google</button>
+          </div>
         </div>
-        <label>Token Mercado Pago<input id="cfg-mp-token" type="password"></label>
-        <label>Valor mínimo (R$)<input id="cfg-mp-min" type="number" min="0" step="0.01"></label>
-        <label>URL Supabase<input id="cfg-supabase-url" type="url"></label>
-        <label>Chave anon Supabase<input id="cfg-supabase-key" type="password"></label>
+        <div class="settings-tab" data-tab="payments">
+          <label>Token Mercado Pago<input id="cfg-mp-token" type="password"></label>
+          <label>Valor mínimo VIP (R$)<input id="cfg-mp-min" type="number" min="0.50" step="0.50" value="5.00"></label>
+        </div>
+        <div class="settings-tab" data-tab="cloud">
+          <label>URL Supabase<input id="cfg-supabase-url" type="url"></label>
+          <label>Chave anon Supabase<input id="cfg-supabase-key" type="password"></label>
+        </div>
       </div>
       <div class="settings-actions">
-        <button class="btn btn-ghost" id="btn-cancel-settings">Cancelar</button>
-        <button class="btn btn-primary" id="btn-save-settings">Salvar</button>
+        <button class="btn btn-ghost" id="btn-cancel-settings" type="button">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-settings" type="button">Salvar</button>
       </div>
     </div>
   </div>

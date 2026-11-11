@@ -1,4 +1,5 @@
 const settingsApi = window.chessHub.settings;
+let isTwitchLoggingIn = false;
 
 async function openSettings() {
   const config = await settingsApi.get();
@@ -18,6 +19,7 @@ async function openSettings() {
   twitchStatus.textContent = config.twitchOAuthToken ? 'Conectado' : 'Não conectado';
   twitchStatus.className = config.twitchOAuthToken ? 'badge badge-green' : 'badge badge-red';
   $('settings-modal').classList.add('open');
+  document.querySelector('.tab-btn')?.click();
 
   const youtubeStatus = $('youtube-status');
   youtubeStatus.textContent = config.youtubeAccessToken
@@ -58,25 +60,48 @@ async function saveSettings() {
 }
 
 async function loginTwitch() {
+  if (isTwitchLoggingIn) return;
+
   const button = $('btn-twitch-login');
   const status = $('twitch-status');
+  isTwitchLoggingIn = true;
   button.disabled = true;
-  button.textContent = 'Aguardando login...';
+  button.textContent = 'AGUARDANDO LOGIN...';
   try {
     const result = await settingsApi.twitchLogin();
-    status.textContent = result.ok ? 'Conectado' : 'Falhou';
-    status.className = result.ok ? 'badge badge-green' : 'badge badge-red';
-    button.textContent = result.ok ? 'Reconectar Twitch' : 'Tentar novamente';
+
+    if (result && (result.ok || result.success)) {
+      status.textContent = 'CONECTADO';
+      status.className = 'badge badge-green';
+      if (result.username) {
+        $('cfg-twitch-username').value = result.username;
+        const channelInput = $('cfg-twitch-ch');
+        if (channelInput && !channelInput.value.trim()) {
+          channelInput.value = result.username;
+        }
+      }
+      if (result.clientId) $('cfg-twitch-client-id').value = result.clientId;
+    } else if (result?.error === 'timeout') {
+      status.textContent = '⏱ Tempo esgotado';
+      status.className = 'badge badge-red';
+      button.textContent = 'LOGIN TWITCH';
+    } else if (result?.error === 'cancelled') {
+      status.textContent = 'Cancelado';
+      status.className = 'badge badge-red';
+      button.textContent = 'LOGIN TWITCH';
+    } else {
+      status.textContent = `❌ Erro: ${result?.error || 'desconhecido'}`;
+      status.className = 'badge badge-red';
+      button.textContent = 'LOGIN TWITCH';
+    }
   } catch (error) {
     console.error('[Settings] Erro no login Twitch:', error);
-    status.textContent = 'Falhou';
+    status.textContent = '❌ Falha inesperada';
     status.className = 'badge badge-red';
-    button.textContent = 'Tentar novamente';
   } finally {
+    isTwitchLoggingIn = false;
     button.disabled = false;
-    if (!result?.ok) {
-      button.textContent = 'Entrar com o Google';
-    }
+    button.textContent = 'LOGIN TWITCH';
   }
 }
 
@@ -114,3 +139,15 @@ async function loginGoogle() {
 
 $('btn-google-login').addEventListener('click', loginGoogle);
 window.chessHub.on('bots:restarted', () => console.log('[Settings] Bots reiniciados.'));
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.target;
+    document.querySelectorAll('.tab-btn').forEach((tabButton) => {
+      tabButton.classList.toggle('active', tabButton.dataset.target === target);
+    });
+    document.querySelectorAll('.settings-tab').forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.tab === target);
+    });
+  });
+});

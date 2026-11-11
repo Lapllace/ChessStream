@@ -52,20 +52,14 @@ function applyToEnv() {
   for (const [settingKey, envKey] of Object.entries(envMap)) {
     if (settings[settingKey]) {
       process.env[envKey] = settings[settingKey];
-    } else {
-      delete process.env[envKey];
     }
 
     if (settings.youtubeAccessToken) {
       process.env.YOUTUBE_ACCESS_TOKEN = settings.youtubeAccessToken;
-    } else {
-      delete process.env.YOUTUBE_ACCESS_TOKEN;
     }
 
     if (settings.youtubeRefreshToken) {
       process.env.YOUTUBE_REFRESH_TOKEN = settings.youtubeRefreshToken;
-    } else {
-      delete process.env.YOUTUBE_REFRESH_TOKEN;
     }
   }
 }

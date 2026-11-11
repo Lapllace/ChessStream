@@ -1,5 +1,10 @@
 require('dotenv').config();
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app } = require('electron');
+app.commandLine.appendSwitch(
+  'disable-features',
+  'WebAuthentication,WebAuthenticationDevice,CredentialManagement'
+);
+const { BrowserWindow, ipcMain, shell } = require('electron');
 const http = require('http');
 const fs   = require('fs');
 const path = require('path');
@@ -349,45 +354,180 @@ ipcMain.handle('settings:save', async (_, partial) => {
 });
 
 ipcMain.handle('twitch:login', () => new Promise((resolve) => {
-  const authWindow = new BrowserWindow({
-    width: 500,
-    height: 650,
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
-  });
-  let resolved = false;
+  let settled = false;
+  let redirectHandled = false;
+  let extractionHandled = false;
+  let timeoutId;
+  let authWindow = null;
   const finish = (result) => {
-    if (resolved) return;
-    resolved = true;
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    if (authWindow && !authWindow.isDestroyed()) authWindow.close();
     resolve(result);
   };
 
-  const clientId = process.env.TWITCH_CLIENT_ID || getSettings().twitchClientId;
+  timeoutId = setTimeout(() => {
+    finish({ ok: false, error: 'timeout' });
+  }, 3 * 60 * 1000);
+
+  const clientId = process.env.TWITCH_CLIENT_ID
+    || getSettings().twitchClientId
+    || '';
   if (!clientId) {
-    authWindow.close();
-    finish({ ok: false, error: 'TWITCH_CLIENT_ID não configurado' });
+    finish({ ok: false, error: 'Client ID da Twitch não configurado.' });
     return;
   }
 
   const redirectUri = 'http://localhost';
-  const scope = 'chat:read+chat:edit';
-  const url = `https://id.twitch.tv/oauth2/authorize?client_id=${encodeURIComponent(clientId)}`
-    + `&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}`;
+  const scope = 'chat:read chat:edit';
+  const authUrl = 'https://id.twitch.tv/oauth2/authorize'
+    + `?client_id=${encodeURIComponent(clientId)}`
+    + `&redirect_uri=${encodeURIComponent(redirectUri)}`
+    + `&response_type=token`
+    + `&scope=${encodeURIComponent(scope)}`
+    + '&force_verify=true';
 
-  authWindow.loadURL(url);
-  authWindow.webContents.on('will-redirect', async (event, redirectUrl) => {
-    if (!redirectUrl.startsWith(`${redirectUri}#access_token=`)) return;
-    const token = redirectUrl.split('#access_token=')[1].split('&')[0];
-    saveSettings({ twitchOAuthToken: `oauth:${token}` });
-    authWindow.close();
-    try {
-      await restartBots();
-      finish({ ok: true, token: `oauth:${token}` });
-    } catch (error) {
-      console.error('[Twitch] Erro ao reiniciar após login:', error);
-      finish({ ok: false, error: 'Login concluído, mas não foi possível iniciar o bot.' });
-    }
+  authWindow = new BrowserWindow({
+    width: 520,
+    height: 720,
+    parent: mainWindow,
+    modal: true,
+    title: 'Login com a Twitch',
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
   });
-  authWindow.on('closed', () => finish({ ok: false, error: 'Cancelado pelo usuário' }));
+  authWindow.removeMenu();
+  authWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.includes('accounts.google.com') || url.includes('google.com/signin')) {
+      shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
+  });
+  authWindow.once('ready-to-show', () => {
+    if (!authWindow.isDestroyed()) authWindow.show();
+  });
+  authWindow.webContents.on('dom-ready', () => {
+    authWindow.webContents.executeJavaScript(`
+      try {
+        Object.defineProperty(navigator, 'credentials', {
+          get: () => undefined,
+          configurable: true
+        });
+      } catch (e) {}
+    `).catch(() => {});
+  });
+
+  const handleRedirect = (event, url) => {
+    if (!url.startsWith(redirectUri)) return;
+    event.preventDefault();
+    if (redirectHandled) return;
+    redirectHandled = true;
+
+    try {
+      const fragment = url.includes('#') ? url.split('#')[1] : '';
+      const params = new URLSearchParams(fragment);
+      const token = params.get('access_token');
+      if (!token) {
+        finish({
+          ok: false,
+          error: params.get('error_description')
+            || params.get('error')
+            || 'Token não encontrado',
+        });
+        return;
+      }
+
+      const oauthToken = `oauth:${token}`;
+      saveSettings({ twitchOAuthToken: oauthToken });
+      restartBots()
+        .then(() => finish({ ok: true, token: oauthToken }))
+        .catch((error) => {
+          console.error('[Twitch Auth] Erro ao reiniciar o bot:', error.message);
+          finish({ ok: false, error: 'Login concluído, mas o bot não iniciou.' });
+        });
+    } catch (error) {
+      finish({ ok: false, error: error.message });
+    }
+  };
+
+  const checkAndExtractTokens = async () => {
+    if (settled || redirectHandled || extractionHandled || authWindow.isDestroyed()) return;
+
+    try {
+      const extractedData = await authWindow.webContents.executeJavaScript(`
+        (() => {
+          const bodyText = document.body.innerText || '';
+          if (!bodyText.includes('Token Generated Successfully')
+            && !bodyText.includes('Access token')) {
+            return null;
+          }
+
+          let username = '';
+          const userMatch = bodyText.match(/Twitch account:\\s*([^\\s(?]+)/i);
+          if (userMatch) username = userMatch[1].trim();
+
+          const inputs = Array.from(document.querySelectorAll('input'));
+          const inputValues = inputs
+            .map((input) => (input.value || '').trim())
+            .filter((value) => value.length > 10);
+
+          let accessToken = '';
+          let clientId = '';
+          if (inputValues.length >= 1) accessToken = inputValues[0];
+          if (inputValues.length >= 3) clientId = inputValues[2];
+
+          return accessToken ? { accessToken, clientId, username } : null;
+        })()
+      `);
+
+      if (!extractedData?.accessToken || settled || extractionHandled) return;
+      extractionHandled = true;
+      const oauthToken = `oauth:${extractedData.accessToken}`;
+      saveSettings({
+        twitchOAuthToken: oauthToken,
+        ...(extractedData.username && { twitchUsername: extractedData.username }),
+        ...(extractedData.clientId && { twitchClientId: extractedData.clientId }),
+        ...(extractedData.username
+          && !getSettings().twitchChannel
+          && { twitchChannel: extractedData.username }),
+      });
+
+      await restartBots();
+      finish({
+        ok: true,
+        username: extractedData.username,
+        clientId: extractedData.clientId,
+        token: extractedData.accessToken,
+      });
+    } catch (error) {
+      console.error('[Twitch Auth] Erro ao extrair token:', error.message);
+    }
+  };
+
+  authWindow.webContents.on('will-redirect', handleRedirect);
+  authWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.includes('accounts.google.com') || url.includes('google.com/signin')) {
+      event.preventDefault();
+      shell.openExternal(url);
+      if (!authWindow.isDestroyed()) authWindow.close();
+      return;
+    }
+    handleRedirect(event, url);
+  });
+  authWindow.webContents.on('did-finish-load', checkAndExtractTokens);
+  authWindow.webContents.on('did-navigate-in-page', checkAndExtractTokens);
+  authWindow.on('closed', () => finish({ ok: false, error: 'cancelled' }));
+  const standardUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    + 'AppleWebKit/537.36 (KHTML, like Gecko) '
+    + 'Chrome/124.0.0.0 Safari/537.36';
+  authWindow.loadURL(authUrl, { userAgent: standardUserAgent });
 }));
 
 ipcMain.handle('google:login', () => new Promise((resolve) => {

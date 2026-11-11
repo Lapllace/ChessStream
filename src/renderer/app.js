@@ -245,3 +245,107 @@ function escHtml(str) {
 
 /* ── Start ───────────────────────────────────────────────────────────────── */
 init();
+
+const particleCanvas = document.getElementById('particle-canvas');
+
+function initParticles() {
+  if (!particleCanvas) return;
+
+  const context = particleCanvas.getContext('2d');
+  const config = { particleColor: '#8a38d6', count: 35, maxSpeed: 0.5, maxSize: 3 };
+  const particles = [];
+
+  function resizeCanvas() {
+    particleCanvas.width = window.innerWidth;
+    particleCanvas.height = window.innerHeight;
+  }
+
+  class Particle {
+    constructor() {
+      this.reset(true);
+    }
+
+    reset(initial = false) {
+      this.x = Math.random() * particleCanvas.width;
+      this.y = initial ? Math.random() * particleCanvas.height : particleCanvas.height + 10;
+      this.size = Math.floor(Math.random() * (config.maxSize - 1)) + 2;
+      this.speed = Math.random() * config.maxSpeed + 0.15;
+      this.baseOpacity = Math.random() * 0.5 + 0.2;
+      this.opacity = this.baseOpacity;
+    }
+
+    update() {
+      this.y -= this.speed;
+      const fadeStart = particleCanvas.height * 0.7;
+      this.opacity = this.y < fadeStart
+        ? this.baseOpacity * (this.y / fadeStart)
+        : this.baseOpacity;
+      if (this.y < 0 || this.opacity <= 0) this.reset();
+    }
+
+    draw() {
+      if (this.opacity <= 0) return;
+      context.save();
+      context.globalAlpha = Math.max(0, this.opacity);
+      context.fillStyle = config.particleColor;
+      context.shadowBlur = 4;
+      context.shadowColor = config.particleColor;
+      context.fillRect(Math.floor(this.x), Math.floor(this.y), this.size, this.size);
+      context.restore();
+    }
+  }
+
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+  for (let index = 0; index < config.count; index += 1) particles.push(new Particle());
+
+  function animateParticles() {
+    context.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+    particles.forEach((particle) => {
+      particle.update();
+      particle.draw();
+    });
+    requestAnimationFrame(animateParticles);
+  }
+
+  animateParticles();
+}
+
+function runIntroAnimation() {
+  const overlay = document.getElementById('intro-overlay');
+  if (!overlay) return;
+  const badge = document.getElementById('brilliant-badge');
+  const shockwave = document.getElementById('shockwave');
+  const appWrapper = document.getElementById('app-wrapper');
+  if (!badge || !shockwave || !appWrapper) return;
+
+  overlay.style.display = 'flex';
+  overlay.style.opacity = '1';
+  appWrapper.classList.remove('visible');
+  badge.className = 'brilliant-badge';
+  shockwave.className = 'shockwave';
+  document.body.classList.remove('shake-screen');
+
+  setTimeout(() => badge.classList.add('brilliant-drop'), 200);
+  setTimeout(() => {
+    document.body.classList.add('shake-screen');
+    shockwave.classList.add('shockwave-active');
+    badge.classList.add('brilliant-fade');
+  }, 1400);
+  setTimeout(() => {
+    appWrapper.classList.add('visible');
+    overlay.style.opacity = '0';
+  }, 2000);
+  setTimeout(() => {
+    overlay.style.display = 'none';
+  }, 3000);
+}
+
+function replayIntro() {
+  runIntroAnimation();
+}
+
+initParticles();
+window.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('intro-overlay')) runIntroAnimation();
+});

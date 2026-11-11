@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChessStream - Clean Interface & Queue Manager</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #08060e;
+      --panel-bg: #110c22;
+      --panel-border: #ffffff;
+      --neon-purple: #8a38d6;
+      --neon-cyan: #16e0bd;
+      --neon-pink: #f72585;
+      --gold-vip: #ffd700;
+      --text-main: #e0e0e0;
+      --text-muted: #8882a8;
+      
+      --particle-color: #8a38d6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: 'Press Start 2P', monospace;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* ─── CANVAS DE PARTÍCULAS ASCENDENTES ─── */
+    #particle-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    /* ─── BARRA LATERAL ESQUERDA (ÍCONES) ─── */
+    .sidebar {
+      width: 70px;
+      height: 100vh;
+      background: #0d081c;
+      border-right: 3px solid #23193e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 24px;
+      gap: 28px;
+      z-index: 10;
+    }
+
+    .nav-icon {
+      width: 44px;
+      height: 44px;
+      background: #160f2e;
+      border: 2px solid #36255e;
+      border-radius: 6px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      font-size: 18px;
+      transition: all 0.2s ease;
+    }
+
+    .nav-icon:hover {
+      border-color: var(--neon-cyan);
+      background: var(--neon-purple);
+      box-shadow: 0 0 12px var(--neon-purple);
+      transform: scale(1.05);
+    }
+
+    .nav-icon.active {
+      border-color: var(--border-white);
+      box-shadow: 2px 2px 0px var(--neon-cyan);
+    }
+
+    /* ─── ÁREA PRINCIPAL DA APLICAÇÃO ─── */
+    .app-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 24px;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity 0.8s ease-in-out;
+    }
+
+    .app-wrapper.visible {
+      opacity: 1;
+    }
+
+    /* TOPO SUPERIOR ESQUERDO */
+    .top-header {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .app-title {
+      font-size: 20px;
+      color: #ffffff;
+      text-shadow: 3px 3px 0px var(--neon-purple);
+      letter-spacing: 1px;
+    }
+
+    .status-container {
+      display: flex;
+      gap: 20px;
+      font-size: 9px;
+      color: var(--text-muted);
+    }
+
+    .status-tag {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #120c24;
+      padding: 6px 10px;
+      border: 1px solid #281a4c;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--neon-cyan);
+      box-shadow: 0 0 6px var(--neon-cyan);
+    }
+
+    /* LAYOUT PRINCIPAL */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      gap: 24px;
+      flex: 1;
+      height: calc(100% - 80px);
+    }
+
+    /* ÁREA ESQUERDA (PALCO CENTRAL) */
+    .center-stage {
+      background: var(--panel-bg);
+      border: 3px solid var(--panel-border);
+      outline: 3px solid var(--neon-purple);
+      box-shadow: 0 0 20px rgba(138, 56, 214, 0.2);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .current-match-header {
+      font-size: 11px;
+      color: var(--neon-cyan);
+      border-bottom: 2px dashed #281a4c;
+      padding-bottom: 12px;
+    }
+
+    .match-display {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      margin: auto 0;
+    }
+
+    .player-card {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .avatar-box {
+      width: 80px;
+      height: 80px;
+      background: #1d143b;
+      border: 3px solid var(--border-white);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 36px;
+      box-shadow: 4px 4px 0px var(--neon-purple);
+    }
+
+    .vs-badge {
+      font-size: 16px;
+      color: var(--neon-pink);
+      text-shadow: 2px 2px 0px #000;
+    }
+
+    /* COLUNA DIREITA (FILA + BOTÕES ABAIXO) */
+    .right-column {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      height: 100%;
+    }
+
+    /* QUADRO DA FILA */
+    .queue-box {
+      background: var(--panel-bg);
+      border: 3px solid var(--panel-border);
+      outline: 3px solid var(--neon-purple);
+      box-shadow: 0 0 20px rgba(138, 56, 214, 0.2);
+      padding: 18px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow: hidden;
+      transition: outline-color 0.3s;
+    }
+
+    .queue-box.edit-mode {
+      outline-color: var(--neon-cyan);
+      box-shadow: 0 0 25px rgba(22, 224, 189, 0.3);
+    }
+
+    .queue-title {
+      font-size: 11px;
+      color: var(--neon-cyan);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px dashed #281a4c;
+      padding-bottom: 10px;
+    }
+
+    .edit-indicator {
+      font-size: 8px;
+      color: var(--neon-pink);
+      animation: blink 1s infinite alternate;
+    }
+
+    @keyframes blink {
+      0% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
+
+    .queue-items-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+      flex: 1;
+      padding-right: 4px;
+    }
+
+    .queue-item {
+      background: #160f2e;
+      border: 2px solid #2d1f52;
+      padding: 10px 12px;
+      font-size: 9px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+
+    .queue-item.vip {
+      border-color: var(--gold-vip);
+      background: #241b0e;
+    }
+
+    .item-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* AÇÕES DE GERENCIAMENTO (SUBIR, DESCER, DELETAR) */
+    .manager-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .action-btn {
+      background: #1d143b;
+      border: 1px solid var(--border-white);
+      color: #fff;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 8px;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .action-btn:hover {
+      background: var(--neon-purple);
+    }
+
+    .action-btn.del:hover {
+      background: var(--neon-pink);
+    }
+
+    /* CONTROLES ABAIXO DA FILA */
+    .controls-box {
+      background: var(--panel-bg);
+      border: 3px solid var(--panel-border);
+      outline: 3px solid var(--neon-purple);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .pixel-btn {
+      background: #1c1438;
+      border: 2px solid var(--border-white);
+      color: #ffffff;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 9px;
+      padding: 12px;
+      cursor: pointer;
+      text-align: center;
+      box-shadow: 3px 3px 0px var(--neon-purple);
+      transition: all 0.1s;
+    }
+
+    .pixel-btn:hover {
+      background: var(--neon-purple);
+      transform: translate(-1px, -1px);
+      box-shadow: 4px 4px 0px var(--neon-cyan);
+    }
+
+    .pixel-btn.active-mode {
+      background: var(--neon-cyan);
+      color: #000;
+      box-shadow: 3px 3px 0px #fff;
+    }
+
+    .pixel-btn.danger {
+      box-shadow: 3px 3px 0px var(--neon-pink);
+    }
+
+    .pixel-btn.danger:hover {
+      background: var(--neon-pink);
+      box-shadow: 4px 4px 0px #fff;
+    }
+
+    /* ─── ANIMAÇÃO DE ENTRADA ─── */
+    #intro-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: #040308;
+      z-index: 999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      transition: opacity 1s ease-out;
+    }
+
+    .brilliant-badge {
+      width: 140px;
+      height: 140px;
+      position: absolute;
+      z-index: 1001;
+      transform: translateY(-600px) scale(2);
+      filter: drop-shadow(0 0 20px var(--neon-cyan));
+    }
+
+    .brilliant-drop {
+      animation: dropSlamSlow 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    @keyframes dropSlamSlow {
+      0% { transform: translateY(-600px) scale(2.2); opacity: 0; }
+      60% { opacity: 1; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .brilliant-fade {
+      animation: badgeFadeSlow 1.4s ease-out forwards;
+    }
+
+    @keyframes badgeFadeSlow {
+      0% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 30px var(--neon-cyan)) brightness(1.5); }
+      50% { filter: drop-shadow(0 0 60px #ffffff) brightness(3); transform: scale(1.1); }
+      100% { opacity: 0; transform: scale(1.4); filter: drop-shadow(0 0 0px var(--neon-cyan)); }
+    }
+
+    .shockwave {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 4px solid var(--neon-cyan);
+      box-shadow: 0 0 30px var(--neon-cyan);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    .shockwave-active {
+      animation: expandShockwaveSlow 1.6s cubic-bezier(0.1, 0.7, 0.1, 1) forwards;
+    }
+
+    @keyframes expandShockwaveSlow {
+      0% { width: 10px; height: 10px; opacity: 1; border-width: 10px; }
+      40% { opacity: 0.7; }
+      100% { width: 2800px; height: 2800px; opacity: 0; border-width: 1px; }
+    }
+
+    .shake-screen {
+      animation: screenShakeSlow 0.4s cubic-bezier(.36,.07,.19,.97) forwards;
+    }
+
+    @keyframes screenShakeSlow {
+      10%, 90% { transform: translate3d(-2px, 2px, 0); }
+      20%, 80% { transform: translate3d(3px, -3px, 0); }
+      30%, 50%, 70% { transform: translate3d(-4px, 4px, 0); }
+      40%, 60% { transform: translate3d(4px, -4px, 0); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Canvas de Partículas Ascendentes -->
+  <canvas id="particle-canvas"></canvas>
+
+  <!-- Overlay de Entrada -->
+  <div id="intro-overlay">
+    <div class="shockwave" id="shockwave"></div>
+    <div class="brilliant-badge" id="brilliant-badge">
+      <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="46" fill="#16e0bd" stroke="#ffffff" stroke-width="4"/>
+        <path d="M 34 24 L 44 24 L 43 54 L 35 54 Z" fill="#ffffff"/>
+        <rect x="35" y="60" width="8" height="8" rx="1" fill="#ffffff"/>
+        <path d="M 56 24 L 66 24 L 65 54 L 57 54 Z" fill="#ffffff"/>
+        <rect x="57" y="60" width="8" height="8" rx="1" fill="#ffffff"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- BARRA LATERAL ESQUERDA -->
+  <aside class="sidebar">
+    <div class="nav-icon active" title="Fila & Partida">♟</div>
+    <div class="nav-icon" title="Histórico">📜</div>
+    <div class="nav-icon" title="Mercado Pago">💳</div>
+    <div class="nav-icon" title="Conexões">📺</div>
+    <div class="nav-icon" title="Configurações">⚙️</div>
+  </aside>
+
+  <!-- ÁREA PRINCIPAL -->
+  <div class="app-wrapper" id="app-wrapper">
+    
+    <!-- SUPERIOR ESQUERDO: TITULO + STATUS -->
+    <header class="top-header">
+      <h1 class="app-title">ChessStream</h1>
+      <div class="status-container">
+        <div class="status-tag"><div class="status-dot"></div> TWITCH: ON</div>
+        <div class="status-tag"><div class="status-dot"></div> YOUTUBE: ON</div>
+        <div class="status-tag"><div class="status-dot"></div> SUPABASE: OK</div>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      
+      <!-- PALCO CENTRAL -->
+      <section class="center-stage">
+        <div class="current-match-header">PARTIDA ATUAL EM ANDAMENTO</div>
+        
+        <div class="match-display">
+          <div class="player-card">
+            <div class="avatar-box">♔</div>
+            <span style="font-size: 11px;">Streamer</span>
+            <span style="font-size: 8px; color: var(--text-muted);">Chess.com</span>
+          </div>
+
+          <div class="vs-badge">VS</div>
+
+          <div class="player-card">
+            <div class="avatar-box">♟</div>
+            <span style="font-size: 11px;">TwTobi</span>
+            <span style="font-size: 8px; color: var(--neon-cyan);">743 ELO</span>
+          </div>
+        </div>
+
+        <div style="font-size: 9px; color: var(--text-muted); text-align: center;">
+          Tempo de Partida: 04:12 • Plataforma: Chess.com
+        </div>
+      </section>
+
+      <!-- COLUNA DIREITA (FILA + GERENCIADOR) -->
+      <div class="right-column">
+        
+        <!-- QUADRO DA FILA -->
+        <section class="queue-box" id="queue-box">
+          <div class="queue-title">
+            <span>FILA DE ESPERA</span>
+            <span id="queue-count-tag">QTD: 4</span>
+          </div>
+
+          <div class="queue-items-container" id="queue-container">
+            <!-- Itens inseridos dinamicamente via JS -->
+          </div>
+        </section>
+
+        <!-- BOTÕES DE CONTROLE ABAIXO -->
+        <section class="controls-box">
+          <button class="pixel-btn" id="manage-btn" onclick="toggleManager()">GERENCIAR FILA</button>
+          <button class="pixel-btn">CHAMAR PRÓXIMO</button>
+          <button class="pixel-btn danger">PAUSAR FILA</button>
+          <button class="pixel-btn" onclick="replayIntro()">REPETIR INTRO</button>
+        </section>
+
+      </div>
+    </main>
+
+  </div>
+
+  <script>
+    /* ─── DADOS DE EXEMPLO DA FILA ─── */
+    let queueData = [
+      { id: '1', name: 'Magnus_Fan99', platform: 'Chess.com', isVip: true, value: 'R$ 10,00' },
+      { id: '2', name: 'Kasparov_Noob', platform: 'Lichess', isVip: false },
+      { id: '3', name: 'Capablanca_2026', platform: 'Chess.com', isVip: false },
+      { id: '4', name: 'Hikaru_Enjoyer', platform: 'Chess.com', isVip: false }
+    ];
+
+    let isManagerActive = false;
+
+    /* ─── RENDERIZAR A FILA INTERATIVAMENTE ─── */
+    function renderQueue() {
+      const container = document.getElementById('queue-container');
+      const countTag = document.getElementById('queue-count-tag');
+      
+      countTag.textContent = isManagerActive ? '[ REORDENANDO ]' : `QTD: ${queueData.length}`;
+      container.innerHTML = '';
+
+      queueData.forEach((player, index) => {
+        const item = document.createElement('div');
+        item.className = `queue-item ${player.isVip ? 'vip' : ''}`;
+
+        const leftDiv = document.createElement('div');
+        leftDiv.className = 'item-left';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = `#${index + 1} ${player.name}`;
+        leftDiv.appendChild(nameSpan);
+
+        if (player.isVip) {
+          const vipTag = document.createElement('span');
+          vipTag.style.color = 'var(--gold-vip)';
+          vipTag.textContent = '★ VIP';
+          leftDiv.appendChild(vipTag);
+        }
+
+        item.appendChild(leftDiv);
+
+        /* Se o modo de gerenciamento estiver ativo, mostra botões de subir/descer/remover */
+        if (isManagerActive) {
+          const actionsDiv = document.createElement('div');
+          actionsDiv.className = 'manager-actions';
+
+          // Botão Subir
+          const upBtn = document.createElement('button');
+          upBtn.className = 'action-btn';
+          upBtn.textContent = '▲';
+          upBtn.onclick = () => moveItem(index, -1);
+          if (index === 0) upBtn.style.opacity = '0.3';
+
+          // Botão Descer
+          const downBtn = document.createElement('button');
+          downBtn.className = 'action-btn';
+          downBtn.textContent = '▼';
+          downBtn.onclick = () => moveItem(index, 1);
+          if (index === queueData.length - 1) downBtn.style.opacity = '0.3';
+
+          // Botão Remover
+          const delBtn = document.createElement('button');
+          delBtn.className = 'action-btn del';
+          delBtn.textContent = '✕';
+          delBtn.onclick = () => removeItem(index);
+
+          actionsDiv.appendChild(upBtn);
+          actionsDiv.appendChild(downBtn);
+          actionsDiv.appendChild(delBtn);
+          item.appendChild(actionsDiv);
+        } else {
+          const statusSpan = document.createElement('span');
+          statusSpan.style.color = player.isVip ? 'var(--gold-vip)' : 'var(--text-muted)';
+          statusSpan.textContent = player.isVip ? player.value : 'PENDENTE';
+          item.appendChild(statusSpan);
+        }
+
+        container.appendChild(item);
+      });
+    }
+
+    /* Alternar modo de gerenciamento da fila */
+    function toggleManager() {
+      isManagerActive = !isManagerActive;
+      const queueBox = document.getElementById('queue-box');
+      const manageBtn = document.getElementById('manage-btn');
+
+      if (isManagerActive) {
+        queueBox.classList.add('edit-mode');
+        manageBtn.classList.add('active-mode');
+        manageBtn.textContent = 'CONCLUIR ORDEM';
+      } else {
+        queueBox.classList.remove('edit-mode');
+        manageBtn.classList.remove('active-mode');
+        manageBtn.textContent = 'GERENCIAR FILA';
+      }
+
+      renderQueue();
+    }
+
+    /* Mover item para cima ou para baixo */
+    function moveItem(index, direction) {
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= queueData.length) return;
+
+      const temp = queueData[index];
+      queueData[index] = queueData[newIndex];
+      queueData[newIndex] = temp;
+
+      renderQueue();
+    }
+
+    /* Remover item da fila */
+    function removeItem(index) {
+      queueData.splice(index, 1);
+      renderQueue();
+    }
+
+    /* Renderização inicial */
+    renderQueue();
+
+    /* ─── PARTÍCULAS LEVES ─── */
+    const CONFIG = { particleColor: '#8a38d6', count: 35, maxSpeed: 0.5, maxSize: 3 };
+    const canvas = document.getElementById('particle-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+
+    function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    class Particle {
+      constructor() { this.reset(true); }
+      reset(initial = false) {
+        this.x = Math.random() * canvas.width;
+        this.y = initial ? Math.random() * canvas.height : canvas.height + 10;
+        this.size = Math.floor(Math.random() * (CONFIG.maxSize - 1)) + 2;
+        this.speed = Math.random() * CONFIG.maxSpeed + 0.15;
+        this.baseOpacity = Math.random() * 0.5 + 0.2;
+        this.opacity = this.baseOpacity;
+      }
+      update() {
+        this.y -= this.speed;
+        const fadeStart = canvas.height * 0.7;
+        if (this.y < fadeStart) this.opacity = this.baseOpacity * (this.y / fadeStart);
+        else this.opacity = this.baseOpacity;
+        if (this.y < 0 || this.opacity <= 0) this.reset(false);
+      }
+      draw() {
+        if (this.opacity <= 0) return;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, this.opacity);
+        ctx.fillStyle = CONFIG.particleColor;
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = CONFIG.particleColor;
+        ctx.fillRect(Math.floor(this.x), Math.floor(this.y), this.size, this.size);
+        ctx.restore();
+      }
+    }
+    for (let i = 0; i < CONFIG.count; i++) particles.push(new Particle());
+    function animateParticles() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach(p => { p.update(); p.draw(); });
+      requestAnimationFrame(animateParticles);
+    }
+    animateParticles();
+
+    /* ─── INTRO ANIMATION ─── */
+    function runIntroAnimation() {
+      const overlay = document.getElementById('intro-overlay');
+      const badge = document.getElementById('brilliant-badge');
+      const shockwave = document.getElementById('shockwave');
+      const appWrapper = document.getElementById('app-wrapper');
+
+      overlay.style.display = 'flex';
+      overlay.style.opacity = '1';
+      appWrapper.classList.remove('visible');
+      badge.className = 'brilliant-badge';
+      shockwave.className = 'shockwave';
+      document.body.classList.remove('shake-screen');
+
+      setTimeout(() => { badge.classList.add('brilliant-drop'); }, 200);
+      setTimeout(() => {
+        document.body.classList.add('shake-screen');
+        shockwave.classList.add('shockwave-active');
+        badge.classList.add('brilliant-fade');
+      }, 1400);
+      setTimeout(() => {
+        appWrapper.classList.add('visible');
+        overlay.style.opacity = '0';
+      }, 2000);
+      setTimeout(() => { overlay.style.display = 'none'; }, 3000);
+    }
+    window.addEventListener('DOMContentLoaded', runIntroAnimation);
+    function replayIntro() { runIntroAnimation(); }
+  </script>
+</body>
+</html>
