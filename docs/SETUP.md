@@ -1,154 +1,114 @@
-# ChessStream Hub — Guia de Setup
+# 🛠️ Setup — ChessStream Hub
 
 ## Pré-requisitos
 
-- Node.js 18+
-- Conta no [Supabase](https://supabase.com) (gratuito) — Opção B
-- Conta na [Vercel](https://vercel.com) (gratuito) — Opção B
-- Conta de desenvolvedor no [Mercado Pago](https://www.mercadopago.com.br/developers) — Opção B
-
----
+- Node.js/npm em versões compatíveis com a versão Electron declarada no `package.json`.
+- Projeto Supabase para fila persistida e sincronização VIP.
+- Credenciais OAuth da Google para YouTube, quando essa integração for utilizada.
+- Aplicativo Twitch Developer e canal Twitch, quando essa integração for utilizada.
+- Conta TikTok e, opcionalmente, cookie `sessionid`.
+- Conta Mercado Pago e projeto Vercel somente para ativar o fluxo VIP.
 
 ## 1. Instalar dependências
 
 ```bash
-cd chessstream-hub
+git clone https://github.com/Lapllace/ChessStream.git
+cd ChessStream
 npm install
 ```
 
----
+## 2. Configurar ambiente
 
-## 2. Configurar variáveis de ambiente
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+macOS / Linux:
 
 ```bash
 cp .env.example .env
 ```
 
-Abra o `.env` e preencha:
+Preencha as variáveis de `.env.example` que correspondem às integrações utilizadas:
 
-| Variável | Onde pegar |
+| Variável | Finalidade |
 |---|---|
-| `CHESS_STREAMER_NICK` | Seu nick no Chess.com |
-| `TWITCH_OAUTH_TOKEN` | [twitchapps.com/tmi](https://twitchapps.com/tmi/) |
-| `TWITCH_CHANNEL` | Nome do seu canal (sem #) |
-| `YOUTUBE_CHANNEL_ID` | URL do seu canal → `about` → copiar ID |
-| `GOOGLE_CLIENT_ID` | Credencial OAuth de aplicativo desktop no Google Cloud Console |
-| `GOOGLE_CLIENT_SECRET` | Credencial OAuth de aplicativo desktop no Google Cloud Console |
+| `CHESS_STREAMER_NICK` | Nick do streamer no Chess.com. |
+| `TWITCH_USERNAME` | Usuário do bot Twitch. |
+| `TWITCH_OAUTH_TOKEN` | Token do bot; o código normaliza o prefixo `oauth:`. |
+| `TWITCH_CHANNEL` | Canal conectado. |
+| `TIKTOK_USERNAME` | Usuário da live TikTok. |
+| `TIKTOK_SESSION_ID` | Cookie opcional para lives que exigem sessão. |
+| `YOUTUBE_CHANNEL_ID` | ID do canal YouTube. |
+| `YOUTUBE_LIVE_CHAT_ID` | ID opcional do chat ao vivo; o módulo pode tentar descobrir uma live ativa. |
+| `SUPABASE_URL` | URL do projeto Supabase. |
+| `SUPABASE_ANON_KEY` | Chave pública anon do Supabase. |
+| `MP_ACCESS_TOKEN` | Token do Mercado Pago para o webhook. |
+| `MP_WEBHOOK_SECRET` | Segredo reservado para validação do webhook; confira o estado da implementação antes de produção. |
+| `MP_MIN_VALUE_CENTS` | Valor mínimo em centavos para pagamento VIP. |
 
-As mesmas configurações podem ser informadas pelo botão **Configurações** no painel.
-Os valores salvos pela interface ficam persistidos localmente e substituem os valores do
-`.env` nas execuções seguintes. O `.env` continua sendo usado como fallback para
-desenvolvimento.
+As configurações também podem ser feitas pelo painel, quando a opção estiver disponível. Nunca coloque valores reais no `.env.example`.
 
-Para conectar o YouTube, abra **Configurações → Entrar com o Google**. O canal
-é detectado automaticamente e os tokens OAuth são persistidos localmente.
+## 3. Preparar Supabase
 
----
+1. Crie um projeto em [supabase.com](https://supabase.com/).
+2. Abra **SQL Editor**.
+3. Revise o arquivo `supabase/schema.sql`.
+4. Execute o SQL em projeto de desenvolvimento.
+5. Copie Project URL e chave anon para o arquivo local `.env`.
+6. Confirme Realtime para `fila_vip`.
 
-## 3. Rodar o app (Opção A — só fila pelo chat)
+> **Segurança:** as policies no schema concedem permissões amplas a roles públicas. Leia [SECURITY.md](SECURITY.md) e ajuste as policies antes de produção.
+
+## 4. YouTube OAuth
+
+1. Abra [Google Cloud Console](https://console.cloud.google.com/).
+2. Ative YouTube Data API v3.
+3. Crie credenciais OAuth para aplicativo desktop.
+4. Baixe o JSON de credenciais.
+5. Coloque o arquivo no local esperado pelo carregador de credenciais em `src/main/index.js`.
+6. Compare o nome do arquivo com a lista `build.files` de `package.json` antes de empacotar: o caminho do runtime e o do empacotamento precisam coincidir.
+7. Inicie a autenticação pela tela de configurações do aplicativo.
+
+O módulo consulta `liveChatMessages.list` em ciclos de 15 segundos e descarta mensagens anteriores ao início da conexão.
+
+## 5. Twitch
+
+1. Crie um aplicativo no [Twitch Developer Console](https://dev.twitch.tv/console/apps).
+2. Configure `TWITCH_CHANNEL`, `TWITCH_USERNAME` e as credenciais necessárias.
+3. Use a opção de conexão Twitch no aplicativo, quando disponível.
+4. Confira o status no painel e faça teste com um canal privado/de teste.
+
+## 6. TikTok
+
+1. Informe o usuário sem `@` em `TIKTOK_USERNAME`.
+2. Teste a conexão anônima.
+3. Se a live exigir autenticação, use o fluxo de conexão disponível ou configure o `TIKTOK_SESSION_ID` localmente.
+4. Nunca compartilhe ou faça commit do cookie.
+
+## 7. Mercado Pago + Vercel (opcional)
+
+A pasta `vercel-webhook/` contém a função `api/webhook.js`.
+
+1. Faça deploy da função na Vercel.
+2. Configure `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `MP_ACCESS_TOKEN` e `MP_MIN_VALUE_CENTS` como secrets do projeto.
+3. Configure o webhook no painel do Mercado Pago para evento de pagamento.
+4. Garanta que o fluxo de assinatura do webhook foi implementado e testado antes de usar pagamentos reais.
+
+O `external_reference` atualmente é interpretado como `plataforma:usuario:nick_chess`. O handler consulta o pagamento na API do Mercado Pago e só processa pagamentos aprovados acima do mínimo.
+
+## 8. Executar
 
 ```bash
 npm start
 ```
 
-O painel abre. Teste digitando `!jogar seu_nick` em um chat de teste.
-
----
-
-## 4. Setup do Supabase (Opção B)
-
-1. Crie um projeto em [supabase.com](https://supabase.com)
-2. Vá em **SQL Editor** e cole o conteúdo de `supabase/schema.sql`
-3. Clique em **Run**
-4. Vá em **Settings → API** e copie:
-   - `Project URL` → `SUPABASE_URL` no `.env`
-   - `anon public` key → `SUPABASE_ANON_KEY` no `.env`
-   - `service_role` key → guarde para a Vercel (próximo passo)
-
----
-
-## 5. Deploy do Webhook na Vercel (Opção B)
+Para gerar instalador:
 
 ```bash
-npm install -g vercel
-cd vercel-webhook
-vercel deploy
+npm run build
 ```
 
-Na Vercel, adicione as variáveis de ambiente:
-
-| Variável | Valor |
-|---|---|
-| `SUPABASE_URL` | URL do seu projeto Supabase |
-| `SUPABASE_SERVICE_KEY` | service_role key do Supabase |
-| `MP_ACCESS_TOKEN` | Token do Mercado Pago (produção ou sandbox) |
-| `MP_MIN_VALUE_CENTS` | Valor mínimo em centavos (ex: `500` = R$5) |
-
-Após o deploy, você terá uma URL como:
-```
-https://chessstream-webhook.vercel.app/api/webhook
-```
-
----
-
-## 6. Configurar Webhook no Mercado Pago (Opção B)
-
-1. Acesse [mercadopago.com.br/developers](https://www.mercadopago.com.br/developers)
-2. Vá em **Suas integrações → Webhooks**
-3. Adicione a URL da Vercel acima
-4. Marque apenas o evento **`payment`**
-
-### Passando dados do viewer no pagamento
-
-Quando gerar um QR Code / link de pagamento, passe o `external_reference` com o formato:
-```
-twitch:NomeDoViewer:nick_chess_do_viewer
-```
-
-Exemplo via API MP:
-```js
-{
-  external_reference: "twitch:Joaozinho:joao_chess",
-  transaction_amount: 10.00,
-  ...
-}
-```
-
----
-
-## 7. Testar o fluxo completo (Opção B)
-
-1. Rode o app: `npm start`
-2. No Supabase → SQL Editor, insira uma linha manualmente para simular pagamento:
-
-```sql
-INSERT INTO fila_vip (payment_id, username, chess_nick, platform, amount_cents)
-VALUES ('test-001', 'Joaozinho', 'joao_chess123', 'twitch', 1000);
-```
-
-3. O painel deve tocar o som e mostrar o toast VIP em ~1 segundo.
-
----
-
-## Comandos do chat
-
-| Comando | Quem usa | Efeito |
-|---|---|---|
-| `!jogar <nick>` | Viewer | Entra na fila |
-| `!posicao` | Viewer | Vê sua posição |
-| `!sair` | Viewer | Sai da fila |
-| `!proximo` | Streamer/Mod | Puxa próximo da fila e abre Chess.com |
-| `!pular` | Streamer/Mod | Move atual para o fim, puxa próximo |
-| `!fila pausar` | Streamer/Mod | Para novas entradas |
-| `!fila retomar` | Streamer/Mod | Reabre a fila |
-
----
-
-## Sistema de prioridades
-
-| Cor da barra | Nível | Quem |
-|---|---|---|
-| Verde | Ultra VIP (1) | Convidado direto do streamer |
-| Dourado | VIP Pago (2) | Doação via Pix / assinante |
-| Azul | Membro (3) | Sub Twitch / membro YouTube |
-| Sem barra | Padrão (4) | Viewer comum |
+Veja [OPERATIONS.md](OPERATIONS.md) para os comandos e o checklist de transmissão.
