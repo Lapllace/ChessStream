@@ -43,7 +43,7 @@ Adicione capturas reais nos caminhos abaixo para exibir a interface do aplicativ
   <br/><sub>`docs/assets/screenshots/history-queue-placeholder.svg`</sub>
 </div>
 
-## ✨ Abilities — Funcionalidades
+## ✨ Habilidades — Funcionalidades
 
 - **♟ Fila multi-plataforma:** recebe comandos dos chats Twitch, YouTube e TikTok e reúne os espectadores na mesma fila persistida no Supabase.
 - **🛡 Anti-duplicidade:** normaliza nomes e impede entradas repetidas sem diferenciar maiúsculas e minúsculas.
