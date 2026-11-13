@@ -33,14 +33,14 @@ Adicione capturas reais nos caminhos abaixo para exibir a interface do aplicativ
 
 | Painel principal | Configurações |
 |:---:|:---:|
-| ![Painel principal](docs/assets/screenshots/dashboard.png) | ![Configurações](docs/assets/screenshots/settings.png) |
-| `docs/assets/screenshots/dashboard.png` | `docs/assets/screenshots/settings.png` |
+| ![Painel principal](docs/assets/screenshots/dashboard-placeholder.svg) | ![Configurações](docs/assets/screenshots/settings-placeholder.svg) |
+| `docs/assets/screenshots/dashboard-placeholder.svg` | `docs/assets/screenshots/settings-placeholder.svg` |
 
 <div align="center">
   **Histórico de partidas e fila**
   <br/>
-  ![Histórico e fila](docs/assets/screenshots/history-queue.png)
-  <br/><sub>`docs/assets/screenshots/history-queue.png`</sub>
+  ![Histórico e fila](docs/assets/screenshots/history-queue-placeholder.svg)
+  <br/><sub>`docs/assets/screenshots/history-queue-placeholder.svg`</sub>
 </div>
 
 ## ✨ Abilities — Funcionalidades
