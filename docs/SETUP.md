@@ -83,10 +83,18 @@ Na Vercel, adicione as variáveis de ambiente:
 | `SUPABASE_SERVICE_KEY` | service_role key do Supabase |
 | `MP_ACCESS_TOKEN` | Token do Mercado Pago (produção ou sandbox) |
 | `MP_MIN_VALUE_CENTS` | Valor mínimo em centavos (ex: `500` = R$5) |
+| `LIVEPIX_CLIENT_ID` | client_id da aplicação criada no painel de desenvolvedores LivePix |
+| `LIVEPIX_CLIENT_SECRET` | client_secret da aplicação LivePix |
+| `LIVEPIX_OAUTH_SCOPE` | `messages:read` (padrão) |
+| `LIVEPIX_WEBHOOK_SECRET` | Segredo compartilhado para validar a chamada do webhook |
 
-Após o deploy, você terá uma URL como:
+> ⚠️ Rode novamente `supabase/schema.sql` depois de atualizar o app: ele adiciona
+> `amount_cents`/`source_id` em `public.queue` e habilita Realtime na tabela.
+
+Após o deploy, você terá URLs como:
 ```
-https://chessstream-webhook.vercel.app/api/webhook
+https://chessstream-webhook.vercel.app/api/webhook       (Mercado Pago)
+https://chessstream-webhook.vercel.app/api/livepix       (LivePix)
 ```
 
 ---
@@ -113,6 +121,28 @@ Exemplo via API MP:
   ...
 }
 ```
+
+---
+
+## 6.1. Configurar Webhook no LivePix (entrada VIP via PIX)
+
+1. Crie uma aplicação no painel de desenvolvedores da LivePix e copie
+   `client_id`/`client_secret` para as variáveis da Vercel.
+2. Configure o webhook da LivePix com a URL:
+
+```
+https://seu-projeto.vercel.app/api/livepix?secret=SEU_LIVEPIX_WEBHOOK_SECRET
+```
+
+3. O espectador doa pelo LivePix com a mensagem `!jogar <nick_chess>`
+   (ex.: `Manda bala, !jogar Hikaru`).
+4. O endpoint busca os detalhes da mensagem na API do LivePix, extrai
+   valor/doador/mensagem e insere em `public.queue` com `status = 'pending'`
+   e `priority = 'vip'`. O app recebe via Supabase Realtime e atualiza a fila.
+
+> O webhook da LivePix envia apenas o `id` do recurso; por isso o endpoint
+> autentica via OAuth2 (`client_credentials`) e consulta `GET /v2/messages/{id}`.
+> Sem `LIVEPIX_CLIENT_ID`/`LIVEPIX_CLIENT_SECRET` o fluxo não funciona.
 
 ---
 

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChessStream Queue Overlay</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: transparent;
+      font-family: 'Inter', sans-serif;
+      padding: 12px;
+      /* width/height configurados pelo streamer no OBS */
+    }
+
+    .overlay-title {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 9px;
+      color: #00e5c4;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 10px;
+      text-shadow: 0 0 8px rgba(0, 229, 196, 0.6);
+    }
+
+    .queue-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .queue-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(9, 7, 26, 0.85);
+      border: 1px solid rgba(157, 78, 221, 0.4);
+      border-left: 3px solid #9d4edd;
+      padding: 6px 10px;
+      border-radius: 2px;
+      backdrop-filter: blur(4px);
+    }
+
+    .queue-item.current {
+      border-left-color: #00e5c4;
+      background: rgba(0, 229, 196, 0.08);
+      border-color: rgba(0, 229, 196, 0.5);
+    }
+
+    .queue-pos {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 8px;
+      color: #9d4edd;
+      min-width: 20px;
+    }
+
+    .queue-item.current .queue-pos {
+      color: #00e5c4;
+    }
+
+    .queue-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f0eeff;
+      flex: 1;
+    }
+
+    .queue-chess {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 7px;
+      color: #9b92c8;
+    }
+
+    .badge {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 2px;
+    }
+
+    .badge-twitch  { background: rgba(145,70,255,0.3); color: #bf94ff; }
+    .badge-youtube { background: rgba(255,0,0,0.25);   color: #ff7070; }
+    .badge-tiktok  { background: rgba(0,0,0,0.4);      color: #fff;    }
+    .badge-vip     { background: rgba(255,215,0,0.2);  color: #fbbf24; }
+
+    .empty {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 8px;
+      color: #5c5280;
+      text-align: center;
+      padding: 16px 0;
+    }
+
+    /* Animação de entrada */
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .queue-item { animation: slideIn 200ms ease forwards; }
+  </style>
+</head>
+<body>
+  <div class="overlay-title">♟ Fila — ChessStream</div>
+  <div class="queue-list" id="queueList">
+    <div class="empty">Carregando...</div>
+  </div>
+
+  <script>
+    // Recebe atualizações via IPC enviado pelo overlay server
+    const list = document.getElementById('queueList');
+
+    function renderQueue(queue, current) {
+      list.innerHTML = '';
+
+      if ((!queue || queue.length === 0) && !current) {
+        list.innerHTML = '<div class="empty">Fila vazia</div>';
+        return;
+      }
+
+      const items = [];
+      if (current) items.push({ ...current, _isCurrent: true });
+      if (queue)   items.push(...queue.filter(p => p.username !== current?.username));
+
+      items.forEach((player, i) => {
+        const item = document.createElement('div');
+        item.className = 'queue-item' + (player._isCurrent ? ' current' : '');
+
+        const platform = player.platform || 'chess.com';
+        const badgeClass = platform === 'twitch'  ? 'badge-twitch'
+                         : platform === 'youtube' ? 'badge-youtube'
+                         : platform === 'tiktok'  ? 'badge-tiktok'
+                         : '';
+        const badgeLabel = platform === 'twitch'  ? 'Twitch'
+                         : platform === 'youtube' ? 'YouTube'
+                         : platform === 'tiktok'  ? 'TikTok'
+                         : '♟';
+        const isVip = player.priority <= 2;
+
+        item.innerHTML = `
+          <span class="queue-pos">${player._isCurrent ? '▶' : '#' + (i + (current ? 0 : 1))}</span>
+          <span class="queue-name">${player.username}</span>
+          <span class="queue-chess">${player.chess_nick || ''}</span>
+          ${badgeClass ? `<span class="badge ${badgeClass}">${badgeLabel}</span>` : ''}
+          ${isVip ? '<span class="badge badge-vip">VIP</span>' : ''}
+        `;
+        list.appendChild(item);
+      });
+    }
+
+    // Polling simples: o servidor local retorna JSON
+    async function fetchAndRender() {
+      try {
+        const res = await fetch('/queue-data');
+        if (!res.ok) return;
+        const { queue, current } = await res.json();
+        renderQueue(queue, current);
+      } catch {}
+    }
+
+    fetchAndRender();
+    setInterval(fetchAndRender, 3000);
+  </script>
+</body>
+</html>

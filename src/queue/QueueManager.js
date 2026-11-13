@@ -6,7 +6,7 @@
  */
 
 const axios = require('axios');
-const { supabase } = require('../main/database');
+const { getSupabaseClient } = require('../main/database');
 
 const PRIORITY = {
   ULTRA_VIP: 1,
@@ -24,8 +24,16 @@ class QueueManager {
     this.subscribers = new Map();
   }
 
+  /**
+   * Sempre resolve a instância atual: o usuário pode trocar URL/chave nas
+   * configurações e o cliente anterior é descartado por reconnectSupabase().
+   */
+  get supabase() {
+    return getSupabaseClient();
+  }
+
   assertSupabase() {
-    if (!supabase) {
+    if (!this.supabase) {
       throw new Error('Supabase não está configurado. Verifique o arquivo .env.');
     }
   }
@@ -45,8 +53,23 @@ class QueueManager {
       ...row,
       username: row.player_name,
       chess_nick: row.chess_username,
-      priority: metadata.priority || PRIORITY.STANDARD,
+      priority: this.normalizePriority(metadata.priority),
     };
+  }
+
+  /**
+   * O webhook do LivePix grava priority: 'vip' (texto) e o app usa a escala
+   * numérica 1..4. Converte ambos para o mesmo valor interno.
+   */
+  normalizePriority(value) {
+    if (value === 'vip') return PRIORITY.PAID;
+
+    const numeric = Number(value);
+    if (Number.isInteger(numeric) && numeric >= PRIORITY.ULTRA_VIP && numeric <= PRIORITY.STANDARD) {
+      return numeric;
+    }
+
+    return PRIORITY.STANDARD;
   }
 
   archiveCurrentPlayer(reason = 'finished') {
@@ -60,9 +83,35 @@ class QueueManager {
       platform: player.platform || 'chess.com',
       exitedAt: new Date().toISOString(),
       reason,
+      outcome: player.outcome || null,
     };
     this.matchHistory.push(entry);
     return entry;
+  }
+
+  /**
+   * Registra o desfecho de uma partida encerrada no Chess.com para o jogador
+   * que está no palco. O palco é esvaziado automaticamente e o resultado fica
+   * anexado à entrada arquivada no histórico da sessão.
+   *
+   * @param {string} chessNick nick do oponente que estava jogando
+   * @param {'Vitória'|'Derrota'|'Empate'} outcome
+   */
+  async registerMatchEnd(chessNick, outcome) {
+    const target = this.normalizeUsername(chessNick);
+    const current = this.currentPlayer;
+    if (!current || !target) return false;
+
+    const currentNick = this.normalizeUsername(current.chess_nick);
+    if (!currentNick || currentNick !== target) return false;
+
+    // O outcome é copiado para o histórico por archiveCurrentPlayer().
+    current.outcome = outcome;
+    this.clearCurrentPlayer('match-ended');
+    await this.broadcastQueue();
+
+    console.log(`[Fila] Partida encerrada: ${current.username} — ${outcome}.`);
+    return true;
   }
 
   clearCurrentPlayer(reason = 'finished') {
@@ -89,7 +138,7 @@ class QueueManager {
 
   async getQueue() {
     this.assertSupabase();
-    const { data, error } = await supabase
+    const { data, error } = await this.supabase
       .from('queue')
       .select('*')
       .in('status', ['pending', 'playing'])
@@ -117,7 +166,7 @@ class QueueManager {
   }
 
   async nextPosition() {
-    const { data, error } = await supabase
+    const { data, error } = await this.supabase
       .from('queue')
       .select('position')
       .eq('status', 'pending')
@@ -130,7 +179,7 @@ class QueueManager {
 
   async addToQueue({ username, chessNick, priority, platform }) {
     this.assertSupabase();
-    const { data, error } = await supabase
+    const { data, error } = await this.supabase
       .from('queue')
       .insert({
         player_name: username,
@@ -218,7 +267,7 @@ class QueueManager {
 
   async removeFromQueue(username, reason = 'removed') {
     this.assertSupabase();
-    const { error } = await supabase
+    const { error } = await this.supabase
       .from('queue')
       .delete()
       .eq('player_name', username)
@@ -245,7 +294,7 @@ class QueueManager {
 
   async next() {
     this.assertSupabase();
-    const { data, error } = await supabase
+    const { data, error } = await this.supabase
       .from('queue')
       .select('*')
       .eq('status', 'pending')
@@ -282,7 +331,7 @@ class QueueManager {
       this.archiveCurrentPlayer('next');
     }
 
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await this.supabase
       .from('queue')
       .update({ status: 'playing' })
       .eq('id', data.id)
@@ -311,7 +360,7 @@ class QueueManager {
 
   async updatePlayer(id, changes) {
     this.assertSupabase();
-    const { data, error } = await supabase
+    const { data, error } = await this.supabase
       .from('queue')
       .update(changes)
       .eq('id', id)
@@ -370,7 +419,7 @@ class QueueManager {
   async recordMatch(queueId, playerName, opponentName, result, gameUrl = '') {
     this.assertSupabase();
     const resultMap = { vitória: 'win', derrota: 'loss', empate: 'draw' };
-    const { error } = await supabase.from('match_history').insert({
+    const { error } = await this.supabase.from('match_history').insert({
       queue_id: queueId || null,
       player_name: playerName,
       opponent_name: opponentName,

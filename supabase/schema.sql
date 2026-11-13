@@ -31,8 +31,32 @@ CREATE POLICY "anon pode ler"
   USING (true);
 
 -- ─── Realtime ──────────────────────────────────────────────────
--- Habilita Realtime para esta tabela (necessário para o WebSocket funcionar)
-ALTER PUBLICATION supabase_realtime ADD TABLE public.fila_vip;
+-- Habilita Realtime para as tabelas usadas via WebSocket.
+-- O bloco DO evita erro ao reaplicar o script (ADD TABLE não é idempotente).
+ALTER TABLE public.fila_vip REPLICA IDENTITY FULL;
+ALTER TABLE public.queue    REPLICA IDENTITY FULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'fila_vip'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.fila_vip;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'queue'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.queue;
+  END IF;
+END
+$$;
 
 -- ─── Índices ────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_fila_vip_username  ON public.fila_vip(username);
@@ -60,6 +84,14 @@ CREATE TABLE IF NOT EXISTS public.queue (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Entradas VIP do LivePix anexam o valor doado e o id de origem (idempotência:
+-- o LivePix reenvia o mesmo webhook por até 24h se não receber HTTP 200).
+ALTER TABLE public.queue ADD COLUMN IF NOT EXISTS amount_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.queue ADD COLUMN IF NOT EXISTS source_id TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS queue_source_id_key
+  ON public.queue (source_id);
 
 -- Histórico de partidas
 CREATE TABLE IF NOT EXISTS public.match_history (
@@ -107,7 +139,9 @@ ALTER TABLE public.match_history ENABLE ROW LEVEL SECURITY;
 -- Permissões necessárias para acesso via API
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 
-GRANT SELECT, INSERT, UPDATE, DELETE
+-- DELETE é feito exclusivamente pelo webhook (service_role),
+-- nunca pela anon key do app desktop.
+GRANT SELECT, INSERT, UPDATE
   ON public.profiles, public.queue, public.match_history
   TO anon, authenticated;
 
@@ -127,7 +161,7 @@ DROP POLICY IF EXISTS match_history_insert_public ON public.match_history;
 DROP POLICY IF EXISTS match_history_update_public ON public.match_history;
 DROP POLICY IF EXISTS match_history_delete_public ON public.match_history;
 
--- profiles: SELECT, INSERT, UPDATE, DELETE
+-- profiles: SELECT, INSERT, UPDATE
 CREATE POLICY profiles_select_public
   ON public.profiles FOR SELECT TO anon, authenticated
   USING (true);
@@ -141,11 +175,7 @@ CREATE POLICY profiles_update_public
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY profiles_delete_public
-  ON public.profiles FOR DELETE TO anon, authenticated
-  USING (true);
-
--- queue: SELECT, INSERT, UPDATE, DELETE
+-- queue: SELECT, INSERT, UPDATE
 CREATE POLICY queue_select_public
   ON public.queue FOR SELECT TO anon, authenticated
   USING (true);
@@ -159,11 +189,7 @@ CREATE POLICY queue_update_public
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY queue_delete_public
-  ON public.queue FOR DELETE TO anon, authenticated
-  USING (true);
-
--- match_history: SELECT, INSERT, UPDATE, DELETE
+-- match_history: SELECT, INSERT, UPDATE
 CREATE POLICY match_history_select_public
   ON public.match_history FOR SELECT TO anon, authenticated
   USING (true);
@@ -177,6 +203,3 @@ CREATE POLICY match_history_update_public
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY match_history_delete_public
-  ON public.match_history FOR DELETE TO anon, authenticated
-  USING (true);

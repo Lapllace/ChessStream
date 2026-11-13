@@ -1,4 +1,4 @@
-const { supabase } = require('./database');
+const { getSupabaseClient } = require('./database');
 
 const CHANNEL_NAME = 'fila_vip';
 const SUBSCRIBE_TIMEOUT_MS = 15000;
@@ -7,7 +7,9 @@ class SupabaseListener {
   constructor(queueManager, sendToRenderer) {
     this.queue  = queueManager;
     this.send   = sendToRenderer;
-    this.client = supabase;
+    // Resolvido no start(): o cliente pode ter sido recriado por
+    // reconnectSupabase() enquanto o app estava aberto.
+    this.client = null;
     this.channel = null;
     // Serializa start/stop. Sem isto, dois start() concorrentes reutilizam o
     // mesmo tópico e o segundo tenta adicionar postgres_changes depois do
@@ -33,6 +35,7 @@ class SupabaseListener {
   async startInternal() {
     await this.stopInternal();
 
+    this.client = getSupabaseClient();
     if (!this.client) {
       console.warn('[Supabase] Cliente não configurado — listener não iniciado.');
       return;
@@ -54,6 +57,29 @@ class SupabaseListener {
         this.handleVipPayment(payload.new)
           .catch((error) => console.error('[Supabase] Erro ao processar pagamento:', error));
       }
+    );
+
+    // O webhook do LivePix insere direto em public.queue. Sem esta assinatura,
+    // o app só veria a fila VIP depois de um restart.
+    channel.on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'queue' },
+      (payload) => {
+        this.handleQueueInsert(payload.new)
+          .catch((error) => console.error('[Supabase] Erro ao processar entrada na fila:', error));
+      }
+    );
+
+    channel.on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'queue' },
+      () => this.refreshQueue()
+    );
+
+    channel.on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: 'queue' },
+      () => this.refreshQueue()
     );
 
     await new Promise((resolve) => {
@@ -90,7 +116,7 @@ class SupabaseListener {
   }
 
   async removeStaleChannels() {
-    if (typeof this.client.getChannels !== 'function') return;
+    if (typeof this.client?.getChannels !== 'function') return;
 
     const topic = `realtime:${CHANNEL_NAME}`;
     const stale = this.client
@@ -106,6 +132,41 @@ class SupabaseListener {
         console.warn('[Supabase] Erro ao remover canal órfão:', error?.message || error);
       }
     }
+  }
+
+  async refreshQueue() {
+    try {
+      const queue = await this.queue.getQueue();
+      this.send('queue:update', queue);
+    } catch (error) {
+      console.warn('[Supabase] Não foi possível atualizar a fila:', error?.message || error);
+    }
+  }
+
+  /**
+   * Linha inserida pelo webhook do LivePix (ou por outra instância do app).
+   * Atualiza o painel e dispara o alerta VIP quando a prioridade é "vip".
+   */
+  async handleQueueInsert(row) {
+    if (!row) return;
+
+    await this.refreshQueue();
+
+    let metadata = {};
+    try {
+      metadata = JSON.parse(row.notes || '{}');
+    } catch {
+      metadata = {};
+    }
+
+    const isVip = metadata.priority === 'vip' || Number(metadata.priority) === 2;
+    if (!isVip) return;
+
+    this.send('queue:vip-alert', {
+      username: row.player_name,
+      chessNick: row.chess_username,
+      amount_cents: metadata.amount_cents || row.amount_cents || 0,
+    });
   }
 
   async handleVipPayment(row) {

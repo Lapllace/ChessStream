@@ -263,10 +263,15 @@ body {
   border-color: #00f2fe;
   box-shadow: 0 0 8px rgba(254, 9, 121, .20);
 }
+.badge-chess { color: #81b64c; background: rgba(129, 182, 76, .12); }
+.badge-manual { color: #d1d5db; background: rgba(209, 213, 219, .12); border-color: rgba(209, 213, 219, .45); }
 .badge-vip { color: var(--gold); background: var(--gold-dim); }
 .badge-member { color: #60a5fa; background: rgba(96, 165, 250, .1); }
 .badge-green { color: var(--accent); }
 .badge-red { color: var(--red); }
+.badge-outcome-win  { color: var(--accent); background: var(--accent-dim); }
+.badge-outcome-loss { color: var(--red); background: var(--red-dim); }
+.badge-outcome-draw { color: var(--gold); background: var(--gold-dim); }
 
 .game-result {
   margin-top: 18px;
@@ -356,6 +361,131 @@ body {
 .btn-icon:hover { color: var(--text); border-color: var(--accent); }
 .btn-icon.promote:hover { color: var(--gold); border-color: var(--gold); }
 .btn-icon.remove:hover { color: var(--red); border-color: var(--red); }
+
+/* ── Inserção manual na fila ─────────────────────────────────────────────── */
+.manual-drawer {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.manual-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 0;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-align: left;
+  text-transform: uppercase;
+  transition: all 0.3s ease;
+}
+
+.manual-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-dim);
+}
+
+.manual-toggle-arrow {
+  display: inline-block;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.3s ease;
+}
+
+.manual-drawer.open .manual-toggle-arrow {
+  transform: rotate(180deg);
+}
+
+.manual-input-bar {
+  display: flex;
+  gap: 8px;
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.manual-drawer.open .manual-input-bar {
+  max-height: 80px;
+  margin-top: 10px;
+  opacity: 1;
+}
+
+.manual-input-bar input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  border-radius: 0;
+  outline: none;
+  font-family: var(--sans);
+  font-size: 12px;
+  transition: all 0.3s ease;
+}
+
+.manual-input-bar input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.manual-input-bar input::placeholder { color: var(--text-muted); }
+
+.manual-add-btn {
+  width: 42px;
+  flex: 0 0 42px;
+  color: var(--accent);
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  transition: all 0.3s ease;
+}
+
+.manual-add-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.manual-feedback {
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+  overflow: hidden;
+  font-size: 11px;
+  transition: all 0.3s ease;
+}
+
+.manual-feedback.visible {
+  max-height: 40px;
+  margin-top: 8px;
+  opacity: 1;
+}
+
+.manual-feedback.success { color: var(--accent); }
+.manual-feedback.error   { color: var(--red); }
+
+.manual-drawer:not(.open) .manual-feedback {
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+}
 
 .vip-toast {
   position: fixed;
@@ -452,7 +582,8 @@ body {
   font-size: 11px;
   text-align: center;
 }
-.settings-tab input {
+.settings-tab input,
+.settings-tab select {
   width: 100%;
   padding: 10px;
   color: var(--text);
@@ -463,7 +594,8 @@ body {
   font-size: 13px;
   transition: border-color 150ms ease;
 }
-.settings-tab input:focus {
+.settings-tab input:focus,
+.settings-tab select:focus {
   outline: 0;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-dim);

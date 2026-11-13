@@ -13,28 +13,30 @@ async function openSettings() {
     'cfg-mp-min': config.mpMinValue || 5,
     'cfg-supabase-url': config.supabaseUrl,
     'cfg-supabase-key': config.supabaseAnonKey,
+    'cfg-language': config.language || 'pt',
   };
   for (const [id, value] of Object.entries(fields)) $(id).value = value || '';
 
   const twitchStatus = $('twitch-status');
-  twitchStatus.textContent = config.twitchOAuthToken ? 'Conectado' : 'Não conectado';
-  twitchStatus.className = config.twitchOAuthToken ? 'badge badge-green' : 'badge badge-red';
+  twitchStatus.textContent = config.hasTwitchToken ? 'Conectado' : 'Não conectado';
+  twitchStatus.className = config.hasTwitchToken ? 'badge badge-green' : 'badge badge-red';
   $('settings-modal').classList.add('open');
   document.querySelector('.tab-btn')?.click();
 
   const youtubeStatus = $('youtube-status');
-  youtubeStatus.textContent = config.youtubeAccessToken
+  youtubeStatus.textContent = config.youtubeConnected
     ? `Conectado: ${config.youtubeChannelName || config.youtubeChannelId}`
     : 'Não conectado';
-  youtubeStatus.className = config.youtubeAccessToken
+  youtubeStatus.className = config.youtubeConnected
     ? 'badge badge-green'
     : 'badge badge-red';
 }
 
 async function saveSettings() {
   const button = $('btn-save-settings');
+  const language = $('cfg-language')?.value || 'pt';
   button.disabled = true;
-  button.textContent = 'Salvando...';
+  button.textContent = t('saving', 'Salvando...');
   try {
     const result = await settingsApi.save({
       chessStreamerNick: $('cfg-chess-nick').value.trim(),
@@ -46,17 +48,23 @@ async function saveSettings() {
       mpMinValue: parseFloat($('cfg-mp-min').value) || 5,
       supabaseUrl: $('cfg-supabase-url').value.trim(),
       supabaseAnonKey: $('cfg-supabase-key').value.trim(),
+      language,
     });
     if (!result.ok) throw new Error('Não foi possível salvar as configurações.');
-    button.textContent = 'Salvo!';
+
+    // Aplica o novo idioma sem esperar reiniciar o app.
+    applyLanguage(language);
+    if (typeof renderQueue === 'function') renderQueue();
+
+    button.textContent = t('saved', 'Salvo!');
     setTimeout(() => {
       closeSettings();
-      button.textContent = 'Salvar';
+      button.textContent = t('save', 'Salvar');
       button.disabled = false;
     }, 800);
   } catch (error) {
     console.error('[Settings] Erro ao salvar:', error);
-    button.textContent = 'Erro ao salvar';
+    button.textContent = t('savingError', 'Erro ao salvar');
     button.disabled = false;
   }
 }

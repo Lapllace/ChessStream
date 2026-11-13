@@ -210,19 +210,67 @@ class YouTubeBot {
       const chessNick = message.split(' ')[1];
       if (!chessNick) return;
       const result = await this.queue.join(username, chessNick, 'youtube');
-      // YouTube não tem API de envio de mensagem fácil, loga para o painel
-      console.log(`[YouTube] ${result.msg}`);
+      await this.say(`@${username} ${result.msg}`);
       this.send('chat:message', { platform: 'youtube', username, text: result.msg });
     }
 
     else if (message === '!posicao') {
       const result = await this.queue.position(username);
+      await this.say(`@${username} ${result.msg}`);
       this.send('chat:message', { platform: 'youtube', username, text: result.msg });
     }
 
     else if (message === '!sair') {
       const result = await this.queue.leave(username);
+      await this.say(`@${username} ${result.msg}`);
       this.send('chat:message', { platform: 'youtube', username, text: result.msg });
+    }
+
+    else if (message === '!fila') {
+      try {
+        const queue = await this.queue.getQueue();
+        const count = queue.length;
+        if (count === 0) {
+          await this.say('📋 A fila está vazia. Use !jogar <nick> para entrar!');
+        } else {
+          const next = queue[0];
+          await this.say(
+            `📋 Fila: ${count} jogador(es). Próximo: @${next.username} · Use !posicao`
+          );
+        }
+      } catch {
+        await this.say('📋 Não foi possível consultar a fila agora.');
+      }
+    }
+
+    else if (message === '!ajuda' || message === '!help') {
+      await this.say(
+        '♟ Comandos: !jogar <nick> · !posicao · !sair · !fila'
+      );
+    }
+  }
+
+  async say(message) {
+    if (!this.youtube || !this.liveChatId) return;
+    try {
+      await this.youtube.liveChatMessages.insert({
+        part: ['snippet'],
+        requestBody: {
+          snippet: {
+            liveChatId: this.liveChatId,
+            type: 'textMessageEvent',
+            textMessageDetails: { messageText: message },
+          },
+        },
+      });
+    } catch (err) {
+      // Quota ou live encerrada: não sujar o log com erro repetido
+      const status = err?.response?.status;
+      if (status === 403) {
+        console.warn('[YouTube] Quota excedida ou sem permissão para enviar mensagem.');
+      } else {
+        console.error('[YouTube] Erro ao enviar mensagem:', errorMessage(err));
+      }
     }
   }
 }

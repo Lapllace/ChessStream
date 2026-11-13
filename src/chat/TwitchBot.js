@@ -253,6 +253,33 @@ class TwitchBot {
       this.say(channel, `@${username} ${result.msg}`);
     }
 
+    else if (message === '!fila') {
+      try {
+        const queue = await this.queue.getQueue();
+        const count = queue.length;
+        if (count === 0) {
+          this.say(channel, '📋 A fila está vazia. Use !jogar <nick> para entrar!');
+        } else {
+          const next = queue[0];
+          this.say(channel,
+            `📋 Fila: ${count} jogador(es). Próximo: @${next.username} (${next.chess_nick}). `
+            + 'Use !posicao para ver sua posição.'
+          );
+        }
+      } catch {
+        this.say(channel, '📋 Não foi possível consultar a fila agora.');
+      }
+    }
+
+    else if (message === '!ajuda' || message === '!help' || message === '!comandos') {
+      this.say(channel,
+        '♟ Comandos: !jogar <nick> (entrar na fila) · '
+        + '!posicao (ver sua posição) · '
+        + '!sair (sair da fila) · '
+        + '!fila (ver quantos estão na fila)'
+      );
+    }
+
     // ── Comandos de streamer/moderador ───────────────────────────────────────
     const isMod = tags.mod || tags.badges?.broadcaster;
     if (!isMod) return;

@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('chessHub', {
   pause:        ()         => ipcRenderer.invoke('queue:pause'),
   resume:       ()         => ipcRenderer.invoke('queue:resume'),
   promote:      (username) => ipcRenderer.invoke('queue:promote', username),
+  manualAdd:    (nick)     => ipcRenderer.invoke('queue:manual-add', nick),
   getHistory:   ()         => ipcRenderer.invoke('history:get'),
 
   // Config

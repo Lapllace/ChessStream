@@ -9,15 +9,71 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
-const { getSettings, saveSettings, applyToEnv } = require('./settings');
+const { getSettings, getPublicSettings, saveSettings, applyToEnv } = require('./settings');
+
+// Servidor do overlay OBS
+let overlayServer = null;
+
+function startOverlayServer() {
+  if (overlayServer) return; // já rodando
+
+  overlayServer = http.createServer((req, res) => {
+    if (req.url === '/overlay' || req.url === '/') {
+      const overlayPath = path.join(__dirname, '../renderer/overlay.html');
+      try {
+        const html = fs.readFileSync(overlayPath, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+      } catch {
+        res.writeHead(404);
+        res.end('Overlay not found');
+      }
+      return;
+    }
+
+    if (req.url === '/queue-data') {
+      try {
+        const queue   = queueManager?.getQueue?.() || Promise.resolve([]);
+        const current = queueManager?.currentPlayer || null;
+        Promise.resolve(queue).then((q) => {
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ queue: q, current }));
+        }).catch(() => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ queue: [], current: null }));
+        });
+      } catch {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ queue: [], current: null }));
+      }
+      return;
+    }
+
+    res.writeHead(404);
+    res.end('Not found');
+  });
+
+  overlayServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn('[Overlay] Porta 17563 já em uso — overlay não iniciado.');
+    } else {
+      console.error('[Overlay] Erro no servidor:', err.message);
+    }
+  });
+
+  overlayServer.listen(17563, '127.0.0.1', () => {
+    console.log('[Overlay] Disponível em http://localhost:17563/overlay');
+  });
+}
 
 process.on('unhandledRejection', (reason) => {
   const message = reason?.exception?.message || reason?.message || '';
   if (message.includes('map')) return;
   console.error('[Sistema] Rejeição não tratada:', reason);
 });
-
-applyToEnv();
 
 const QueueManager = require('../queue/QueueManager');
 const ChessMonitor = require('../chess/ChessMonitor');
@@ -242,9 +298,14 @@ function createWindow() {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  // safeStorage só existe depois do app pronto, por isso applyToEnv() (que
+  // descriptografa o token da Twitch) roda aqui e não no topo do módulo.
+  applyToEnv();
+
   queueManager = new QueueManager(sendToRenderer);
   chessMonitor  = new ChessMonitor(queueManager, sendToRenderer);
   createWindow();
+  startOverlayServer();
 
   // Inicia monitoramento do Chess.com (polling a cada 20s)
   chessMonitor.start();
@@ -275,6 +336,11 @@ async function restartBotsInternal() {
   await previousSupabaseListener?.stop();
 
   applyToEnv();
+
+  // Reinicia o ChessMonitor para pegar o nick atualizado
+  chessMonitor.stop();
+  chessMonitor = new ChessMonitor(queueManager, sendToRenderer);
+  chessMonitor.start();
 
   twitchBot = new TwitchBot(queueManager, sendToRenderer);
   const settings = getSettings();
@@ -346,6 +412,7 @@ app.on('window-all-closed', async () => {
   tiktokBot?.stopMonitoring();
   youtubeBot?.disconnect();
   await supabaseListener?.stop();
+  overlayServer?.close();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -374,6 +441,22 @@ ipcMain.handle('queue:pause', () => queueManager.setPaused(true));
 ipcMain.handle('queue:resume', () => queueManager.setPaused(false));
 
 ipcMain.handle('queue:promote', async (_, username) => queueManager.promote(username));
+
+ipcMain.handle('queue:manual-add', async (_, nick) => {
+  const chessNick = String(nick || '').trim().replace(/^@+/, '');
+  if (!chessNick) {
+    return { ok: false, msg: 'Informe o nick do Chess.com.' };
+  }
+
+  try {
+    // Usa o próprio nick como username para que o filtro anti-duplicatas
+    // funcione por jogador. Um username fixo "Manual" bloquearia o segundo add.
+    return await queueManager.join(chessNick, chessNick, 'manual');
+  } catch (error) {
+    console.error('[Fila] Erro ao adicionar manualmente:', error.message);
+    return { ok: false, msg: 'Não foi possível adicionar agora.' };
+  }
+});
 
 ipcMain.handle('tiktok:login', (event, username) => {
   const parentWindow = BrowserWindow.fromWebContents(event.sender);
@@ -494,17 +577,32 @@ ipcMain.handle('tiktok:login', (event, username) => {
   });
 });
 
-ipcMain.handle('config:get', () => ({
-  streamerNick: getSettings().chessStreamerNick || process.env.CHESS_STREAMER_NICK,
-  twitchChannel: getSettings().twitchChannel || process.env.TWITCH_CHANNEL,
-  supabaseEnabled: !!(
-    getSettings().supabaseUrl
-    || process.env.NEXT_PUBLIC_SUPABASE_URL
-    || process.env.SUPABASE_URL
-  ),
-}));
+ipcMain.handle('config:get', () => {
+  // O ChessMonitor inicia antes do renderer registrar o listener de
+  // 'chat:status'. Reenvia o estado atual para o badge não ficar apagado.
+  sendToRenderer('chat:status', chessMonitor?.getStatus?.() ?? {
+    platform: 'chess',
+    connected: false,
+  });
+  return {
+    streamerNick: getSettings().chessStreamerNick || process.env.CHESS_STREAMER_NICK,
+    twitchChannel: getSettings().twitchChannel || process.env.TWITCH_CHANNEL,
+    supabaseEnabled: !!(
+      getSettings().supabaseUrl
+      || process.env.NEXT_PUBLIC_SUPABASE_URL
+      || process.env.SUPABASE_URL
+    ),
+  };
+});
 
-ipcMain.handle('settings:get', () => getSettings());
+ipcMain.handle('settings:get', () => {
+  sendToRenderer('chat:status', chessMonitor?.getStatus?.() ?? {
+    platform: 'chess',
+    connected: false,
+  });
+  // Tokens permanecem no processo principal; o renderer só recebe flags.
+  return getPublicSettings();
+});
 
 ipcMain.handle('settings:save', async (_, partial) => {
   const settings = { ...(partial || {}) };
