@@ -20,6 +20,7 @@ class QueueManager {
     this.send = sendToRenderer;
     this.paused = false;
     this.currentPlayer = null;
+    this.matchHistory = [];
     this.subscribers = new Map();
   }
 
@@ -46,6 +47,44 @@ class QueueManager {
       chess_nick: row.chess_username,
       priority: metadata.priority || PRIORITY.STANDARD,
     };
+  }
+
+  archiveCurrentPlayer(reason = 'finished') {
+    const player = this.currentPlayer;
+    if (!player) return null;
+
+    this.currentPlayer = null;
+    const entry = {
+      username: player.username,
+      chessNick: player.chess_nick || '',
+      platform: player.platform || 'chess.com',
+      exitedAt: new Date().toISOString(),
+      reason,
+    };
+    this.matchHistory.push(entry);
+    return entry;
+  }
+
+  clearCurrentPlayer(reason = 'finished') {
+    const player = this.currentPlayer;
+    if (!player) {
+      this.send('queue:current-player', null);
+      return null;
+    }
+
+    this.archiveCurrentPlayer(reason);
+    this.send('queue:current-player', null);
+    return player;
+  }
+
+  getMatchHistory() {
+    const now = new Date();
+    return this.matchHistory.filter((entry) => {
+      const exitedAt = new Date(entry.exitedAt);
+      return exitedAt.getFullYear() === now.getFullYear()
+        && exitedAt.getMonth() === now.getMonth()
+        && exitedAt.getDate() === now.getDate();
+    });
   }
 
   async getQueue() {
@@ -111,18 +150,25 @@ class QueueManager {
     return this.toPlayer(data);
   }
 
+  normalizeUsername(username) {
+    return String(username || '')
+      .trim()
+      .replace(/^@+/, '')
+      .toLowerCase();
+  }
+
   async join(username, chessNick, platform) {
     if (this.paused) {
       return { ok: false, msg: '⏸️ A fila está pausada no momento.' };
     }
 
     const queue = await this.getQueue();
-    const existing = queue.find((player) => player.username === username);
+    const normalizedUsername = this.normalizeUsername(username);
+    const existing = queue.find(
+      (player) => this.normalizeUsername(player.username) === normalizedUsername
+    );
     if (existing) {
-      return {
-        ok: false,
-        msg: `Você já está na fila! Posição: #${queue.indexOf(existing) + 1}`,
-      };
+      return { ok: false, msg: 'Você já está na fila!' };
     }
 
     const profile = await this.validateChessNick(chessNick);
@@ -170,7 +216,7 @@ class QueueManager {
     return this.subscribers.get(username) || null;
   }
 
-  async removeFromQueue(username) {
+  async removeFromQueue(username, reason = 'removed') {
     this.assertSupabase();
     const { error } = await supabase
       .from('queue')
@@ -178,6 +224,13 @@ class QueueManager {
       .eq('player_name', username)
       .in('status', ['pending', 'playing']);
     if (error) throw error;
+
+    // Se quem saiu da fila era o jogador em "Jogando Agora", registra no
+    // histórico e limpa o painel.
+    if (this.currentPlayer?.username === username) {
+      this.clearCurrentPlayer(reason);
+    }
+
     await this.broadcastQueue();
   }
 
@@ -201,8 +254,33 @@ class QueueManager {
       .limit(1)
       .single();
 
-    if (error?.code === 'PGRST116') return null;
+    if (error?.code === 'PGRST116') {
+      // Fila vazia: o jogador atual sai de "Jogando Agora", vai para o
+      // histórico e o painel volta a exibir "Nenhum desafiante ativo".
+      if (this.currentPlayer) {
+        try {
+          await this.updatePlayer(this.currentPlayer.id, { status: 'completed' });
+        } catch (updateError) {
+          console.warn('[Fila] Não foi possível finalizar o jogador atual:', updateError?.message || updateError);
+        }
+        this.archiveCurrentPlayer('queue-empty');
+      }
+      this.send('queue:current-player', null);
+      await this.broadcastQueue();
+      return null;
+    }
     if (error) throw error;
+
+    // Já havia alguém em "Jogando Agora": encerra e registra no histórico
+    // antes de promover o próximo da fila.
+    if (this.currentPlayer) {
+      try {
+        await this.updatePlayer(this.currentPlayer.id, { status: 'completed' });
+      } catch (updateError) {
+        console.warn('[Fila] Não foi possível finalizar o jogador atual:', updateError?.message || updateError);
+      }
+      this.archiveCurrentPlayer('next');
+    }
 
     const { data: updated, error: updateError } = await supabase
       .from('queue')
@@ -225,6 +303,8 @@ class QueueManager {
         position: await this.nextPosition(),
         notes: JSON.stringify({ priority: PRIORITY.STANDARD }),
       });
+      // O jogador voltou para o fim da fila; registra a saída do palco.
+      this.archiveCurrentPlayer('skipped');
     }
     return this.next();
   }
@@ -272,8 +352,18 @@ class QueueManager {
     const player = queue.find((item) =>
       item.chess_nick?.toLowerCase() === chessNick?.toLowerCase()
     );
-    if (!player) return null;
-    await this.removeFromQueue(player.username);
+
+    if (!player) {
+      // A linha pode já ter saído da fila, mas o jogador ainda estar no
+      // painel "Jogando Agora". Nesse caso, limpa o painel mesmo assim.
+      if (this.currentPlayer?.chess_nick?.toLowerCase() === chessNick?.toLowerCase()) {
+        this.clearCurrentPlayer('match-ended');
+        await this.broadcastQueue();
+      }
+      return null;
+    }
+
+    await this.removeFromQueue(player.username, 'match-ended');
     return player;
   }
 

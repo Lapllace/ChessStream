@@ -25,6 +25,7 @@
 
   <nav class="sidebar" aria-label="Navegação principal">
     <div class="nav-icon active" title="Fila">♟</div>
+    <button class="nav-icon" id="btn-history" title="Histórico de hoje" type="button">🕘</button>
     <button class="nav-icon" id="btn-settings" title="Configurações" type="button">⚙</button>
   </nav>
 
@@ -37,7 +38,8 @@
       <div class="header-right">
         <span class="status-pill" id="statusTwitch" data-platform="twitch">TWITCH</span>
         <span class="status-pill" id="statusYoutube" data-platform="youtube">YOUTUBE</span>
-        <span class="status-pill" id="statusSupabase" data-platform="supabase" style="display:none">SUPABASE</span>
+        <span class="status-pill" id="statusTiktok" data-platform="tiktok">TIKTOK</span>
+        <span class="status-pill" id="statusChess" data-platform="chess">CHESS</span>
       </div>
     </header>
 
@@ -83,6 +85,7 @@
       </div>
       <div class="settings-tabs">
         <button class="tab-btn" data-target="chess" type="button">Chess &amp; Twitch</button>
+        <button class="tab-btn" data-target="tiktok" type="button">TikTok</button>
         <button class="tab-btn" data-target="youtube" type="button">YouTube</button>
         <button class="tab-btn" data-target="payments" type="button">Pagamentos</button>
         <button class="tab-btn" data-target="cloud" type="button">Nuvem</button>
@@ -96,6 +99,17 @@
           <div class="settings-twitch">
             <span>Status: <strong id="twitch-status" class="badge badge-red">Não conectado</strong></span>
             <button class="btn btn-ghost" id="btn-twitch-login" type="button">Conectar Twitch</button>
+          </div>
+        </div>
+        <div class="settings-tab" data-tab="tiktok">
+          <label>Username TikTok (da live)
+            <input id="cfg-tiktok-username" type="text" placeholder="ex: nick_do_streamer">
+          </label>
+          <div class="tiktok-login-action">
+            <button type="button" id="btn-tiktok-login" class="btn btn-ghost">
+              Conectar conta TikTok (recomendado)
+            </button>
+            <small>Faça login na sua conta do TikTok para evitar bloqueios de leitura do chat.</small>
           </div>
         </div>
         <div class="settings-tab" data-tab="youtube">
@@ -120,7 +134,20 @@
     </div>
   </div>
 
+  <div class="settings-modal" id="history-modal">
+    <div class="settings-dialog history-dialog" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <div class="settings-header">
+        <h2 id="history-title">Histórico de Hoje</h2>
+        <button class="btn-icon" id="btn-close-history" aria-label="Fechar" type="button">✕</button>
+      </div>
+      <ul class="history-list" id="history-list">
+        <li class="history-empty">Nenhum jogador passou por aqui hoje.</li>
+      </ul>
+    </div>
+  </div>
+
   <script src="app.js"></script>
   <script src="settingsModal.js"></script>
+  <script src="historyModal.js"></script>
 </body>
 </html>

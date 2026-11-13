@@ -10,14 +10,16 @@ contextBridge.exposeInMainWorld('chessHub', {
   pause:        ()         => ipcRenderer.invoke('queue:pause'),
   resume:       ()         => ipcRenderer.invoke('queue:resume'),
   promote:      (username) => ipcRenderer.invoke('queue:promote', username),
+  getHistory:   ()         => ipcRenderer.invoke('history:get'),
 
   // Config
   getConfig:    () => ipcRenderer.invoke('config:get'),
   settings: {
     get:         ()     => ipcRenderer.invoke('settings:get'),
     save:        (data) => ipcRenderer.invoke('settings:save', data),
-    twitchLogin: ()     => ipcRenderer.invoke('twitch:login'),
+    twitchLogin: (clientId) => ipcRenderer.invoke('twitch:login', clientId),
     googleLogin: () => ipcRenderer.invoke('google:login'),
+    tiktokLogin: (username) => ipcRenderer.invoke('tiktok:login', username),
   },
 
   // Eventos do main → renderer

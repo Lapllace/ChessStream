@@ -4,24 +4,33 @@ app.commandLine.appendSwitch(
   'disable-features',
   'WebAuthentication,WebAuthenticationDevice,CredentialManagement'
 );
-const { BrowserWindow, ipcMain, shell } = require('electron');
+const { BrowserWindow, ipcMain, shell, session } = require('electron');
 const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
 const { getSettings, saveSettings, applyToEnv } = require('./settings');
 
+process.on('unhandledRejection', (reason) => {
+  const message = reason?.exception?.message || reason?.message || '';
+  if (message.includes('map')) return;
+  console.error('[Sistema] Rejeição não tratada:', reason);
+});
+
 applyToEnv();
 
 const QueueManager = require('../queue/QueueManager');
 const ChessMonitor = require('../chess/ChessMonitor');
 const TwitchBot    = require('../chat/TwitchBot');
+const { sanitizeTwitchToken } = TwitchBot;
+const TikTokBot   = require('../chat/TikTokBot');
 const YouTubeBot   = require('../chat/YouTubeBot');
 
 let mainWindow;
 let queueManager;
 let chessMonitor;
 let twitchBot;
+let tiktokBot;
 let youtubeBot;
 let supabaseListener;
 
@@ -245,14 +254,39 @@ app.whenReady().then(async () => {
   console.error('[App] Erro ao iniciar o Electron:', error);
 });
 
-async function restartBots() {
-  twitchBot?.disconnect();
+// Serializa reinícios. Chamadas concorrentes (salvar config enquanto um login
+// termina, por exemplo) criavam dois canais Realtime com o mesmo tópico e
+// quebravam o Supabase com "cannot add postgres_changes callbacks ... after subscribe()".
+let restartChain = Promise.resolve();
+
+function restartBots() {
+  const run = restartChain.catch(() => {}).then(() => restartBotsInternal());
+  restartChain = run.catch(() => {});
+  return run;
+}
+
+async function restartBotsInternal() {
+  await twitchBot?.disconnect();
+  tiktokBot?.stopMonitoring();
   youtubeBot?.disconnect();
-  supabaseListener?.stop();
+
+  const previousSupabaseListener = supabaseListener;
+  supabaseListener = null;
+  await previousSupabaseListener?.stop();
 
   applyToEnv();
 
   twitchBot = new TwitchBot(queueManager, sendToRenderer);
+  const settings = getSettings();
+  const tiktokUsername = settings.tiktokUsername || process.env.TIKTOK_USERNAME;
+  tiktokBot = tiktokUsername
+    ? new TikTokBot({
+      tiktokUsername,
+      tiktokSessionId: settings.tiktokSessionId || process.env.TIKTOK_SESSION_ID || '',
+    }, queueManager, sendToRenderer)
+    : null;
+  if (tiktokBot) void tiktokBot.startMonitoring();
+
   let ytOAuth2Client = null;
   const googleCreds = loadGoogleCredentials();
   if (googleCreds) {
@@ -280,15 +314,25 @@ async function restartBots() {
   }
   youtubeBot = new YouTubeBot(queueManager, sendToRenderer, ytOAuth2Client);
 
-  if (process.env.TWITCH_OAUTH_TOKEN) await twitchBot.connect();
+  // O TwitchBot valida as credenciais e aborta com log amigável quando faltam,
+  // por isso chamamos connect() sempre (sem depender de env possivelmente vazio).
+  await twitchBot.connect();
   if (process.env.YOUTUBE_ACCESS_TOKEN) await youtubeBot.connect();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
   if (supabaseUrl && supabaseKey) {
     const SupabaseListener = require('./supabaseListener');
-    supabaseListener = new SupabaseListener(queueManager, sendToRenderer);
-    supabaseListener.start();
+    const listener = new SupabaseListener(queueManager, sendToRenderer);
+    supabaseListener = listener;
+    try {
+      await listener.start();
+    } catch (error) {
+      // Uma falha do Supabase não pode bloquear o salvamento das configurações.
+      console.error('[Supabase] Falha ao iniciar listener:', error?.message || error);
+      await listener.stop().catch(() => {});
+      if (supabaseListener === listener) supabaseListener = null;
+    }
   } else {
     supabaseListener = null;
   }
@@ -296,11 +340,12 @@ async function restartBots() {
   sendToRenderer('bots:restarted', { ok: true });
 }
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   chessMonitor?.stop();
-  twitchBot?.disconnect();
+  await twitchBot?.disconnect();
+  tiktokBot?.stopMonitoring();
   youtubeBot?.disconnect();
-  supabaseListener?.stop();
+  await supabaseListener?.stop();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -314,16 +359,11 @@ function sendToRenderer(event, payload) {
 // ── IPC: ações do painel ──────────────────────────────────────────────────────
 ipcMain.handle('queue:get', async () => queueManager.getQueue());
 
-ipcMain.handle('queue:next', async () => {
-  const player = await queueManager.next();
-  if (player) {
-    // Abre Chess.com já com o oponente selecionado
-    shell.openExternal(`https://www.chess.com/play/online/new?opponent=${player.chessNick}`);
-  }
-  return player;
-});
+ipcMain.handle('queue:next', async () => queueManager.next());
 
 ipcMain.handle('queue:skip', async () => queueManager.skip());
+
+ipcMain.handle('history:get', () => queueManager.getMatchHistory());
 
 ipcMain.handle('queue:remove', async (_, username) => queueManager.remove(username));
 
@@ -334,6 +374,125 @@ ipcMain.handle('queue:pause', () => queueManager.setPaused(true));
 ipcMain.handle('queue:resume', () => queueManager.setPaused(false));
 
 ipcMain.handle('queue:promote', async (_, username) => queueManager.promote(username));
+
+ipcMain.handle('tiktok:login', (event, username) => {
+  const parentWindow = BrowserWindow.fromWebContents(event.sender);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId;
+    const authWindow = new BrowserWindow({
+      width: 450,
+      height: 700,
+      parent: parentWindow,
+      modal: true,
+      show: false,
+      autoHideMenuBar: true,
+      title: 'Login TikTok',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    // Muta a janela: os vídeos do feed não tocam áudio enquanto o login é lido.
+    authWindow.webContents.setAudioMuted(true);
+
+    // Bloqueia apenas os vídeos do CDN (os assets do login continuam a carregar).
+    authWindow.webContents.session.webRequest.onBeforeRequest(
+      { urls: ['*://*.tiktokcdn.com/*video*'] },
+      (details, callback) => callback({ cancel: true })
+    );
+
+    let cookieReadFailed = false;
+    let cookieCaptured = false;
+    let checkingCookies = false;
+    let cookieInterval = null;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      if (cookieInterval) {
+        clearInterval(cookieInterval);
+        cookieInterval = null;
+      }
+      if (!authWindow.isDestroyed()) authWindow.close();
+      resolve(result);
+    };
+
+    if (typeof username === 'string' && username.trim()) {
+      saveSettings({ tiktokUsername: username.trim() });
+    }
+
+    const checkCookies = async () => {
+      if (settled || cookieCaptured || checkingCookies) return;
+      checkingCookies = true;
+
+      try {
+        const cookies = await session.defaultSession.cookies.get({
+          url: 'https://www.tiktok.com',
+          name: 'sessionid',
+        });
+        if (settled) return;
+        const sessionId = cookies.find((cookie) => cookie.value)?.value;
+        if (!sessionId) return;
+
+        cookieCaptured = true;
+        clearTimeout(timeoutId);
+        if (cookieInterval) {
+          clearInterval(cookieInterval);
+          cookieInterval = null;
+        }
+        saveSettings({ tiktokSessionId: sessionId });
+
+        // Fecha já a janela para o vídeo/áudio parar imediatamente.
+        if (!authWindow.isDestroyed()) authWindow.close();
+
+        try {
+          await restartBots();
+          finish({ ok: true });
+        } catch (error) {
+          console.error(
+            '[TikTok Auth] Login capturado, mas os bots não reiniciaram:',
+            error?.message || error
+          );
+          finish({ ok: false, error: 'restart_failed' });
+        }
+      } catch (error) {
+        if (cookieReadFailed) return;
+        cookieReadFailed = true;
+        console.warn(
+          '[TikTok Auth] Não foi possível ler o cookie sessionid:',
+          error?.message || error
+        );
+      } finally {
+        checkingCookies = false;
+      }
+    };
+
+    timeoutId = setTimeout(() => {
+      finish({ ok: false, error: 'timeout' });
+    }, 3 * 60 * 1000);
+
+    authWindow.removeMenu();
+    authWindow.webContents.on('did-finish-load', checkCookies);
+    authWindow.webContents.on('did-navigate', checkCookies);
+    authWindow.webContents.on('did-navigate-in-page', checkCookies);
+    authWindow.once('ready-to-show', () => authWindow.show());
+    authWindow.on('closed', () => {
+      // Se o cookie já foi capturado, o fecho foi intencional.
+      if (cookieCaptured) return;
+      finish({ ok: false, error: 'cancelled' });
+    });
+    cookieInterval = setInterval(checkCookies, 1000);
+    authWindow.loadURL('https://www.tiktok.com/login', {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        + 'AppleWebKit/537.36 (KHTML, like Gecko) '
+        + 'Chrome/124.0.0.0 Safari/537.36',
+    });
+  });
+});
 
 ipcMain.handle('config:get', () => ({
   streamerNick: getSettings().chessStreamerNick || process.env.CHESS_STREAMER_NICK,
@@ -348,17 +507,45 @@ ipcMain.handle('config:get', () => ({
 ipcMain.handle('settings:get', () => getSettings());
 
 ipcMain.handle('settings:save', async (_, partial) => {
-  saveSettings(partial);
+  const settings = { ...(partial || {}) };
+  const loggedInTikTokUser = typeof settings.loggedInTikTokUser === 'string'
+    ? settings.loggedInTikTokUser.trim()
+    : '';
+  delete settings.loggedInTikTokUser;
+  if (loggedInTikTokUser) {
+    settings.tiktokUsername = loggedInTikTokUser;
+  }
+  saveSettings(settings);
   await restartBots();
   return { ok: true };
 });
 
-ipcMain.handle('twitch:login', () => new Promise((resolve) => {
+async function fetchTwitchUser(accessToken, clientId) {
+  const response = await fetch('https://api.twitch.tv/helix/users', {
+    headers: {
+      'Client-Id': clientId,
+      Authorization: `Bearer ${accessToken}`,
+    },
+    signal: AbortSignal.timeout(8000),
+  });
+
+  if (!response.ok) {
+    const error = new Error(`Helix respondeu ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  const payload = await response.json();
+  return payload?.data?.[0] || null;
+}
+
+ipcMain.handle('twitch:login', (event, clientIdFromRenderer) => new Promise((resolve) => {
   let settled = false;
   let redirectHandled = false;
-  let extractionHandled = false;
+  let tokenCaptured = false;
   let timeoutId;
   let authWindow = null;
+
   const finish = (result) => {
     if (settled) return;
     settled = true;
@@ -367,31 +554,32 @@ ipcMain.handle('twitch:login', () => new Promise((resolve) => {
     resolve(result);
   };
 
-  timeoutId = setTimeout(() => {
-    finish({ ok: false, error: 'timeout' });
-  }, 3 * 60 * 1000);
+  // O Client ID digitado no formulário tem prioridade sobre env/settings,
+  // permitindo conectar antes mesmo de salvar as configurações.
+  const clientId = String(clientIdFromRenderer || '').trim()
+    || String(process.env.TWITCH_CLIENT_ID || '').trim()
+    || String(getSettings().twitchClientId || '').trim();
 
-  const clientId = process.env.TWITCH_CLIENT_ID
-    || getSettings().twitchClientId
-    || '';
   if (!clientId) {
     finish({ ok: false, error: 'Client ID da Twitch não configurado.' });
     return;
   }
 
-  const redirectUri = 'http://localhost';
-  const scope = 'chat:read chat:edit';
-  const authUrl = 'https://id.twitch.tv/oauth2/authorize'
-    + `?client_id=${encodeURIComponent(clientId)}`
-    + `&redirect_uri=${encodeURIComponent(redirectUri)}`
-    + `&response_type=token`
-    + `&scope=${encodeURIComponent(scope)}`
-    + '&force_verify=true';
+  timeoutId = setTimeout(() => {
+    finish({ ok: false, error: 'timeout' });
+  }, 3 * 60 * 1000);
 
+  // Implicit Grant Flow: o access_token volta no hash do redirect.
+  const redirectUri = 'http://localhost';
+  const authUrl = 'https://id.twitch.tv/oauth2/authorize'
+    + `?response_type=token&client_id=${encodeURIComponent(clientId)}`
+    + '&redirect_uri=http://localhost&scope=chat:read+chat:edit';
+
+  const parentWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow;
   authWindow = new BrowserWindow({
     width: 520,
     height: 720,
-    parent: mainWindow,
+    parent: parentWindow,
     modal: true,
     title: 'Login com a Twitch',
     show: false,
@@ -403,6 +591,7 @@ ipcMain.handle('twitch:login', () => new Promise((resolve) => {
     },
   });
   authWindow.removeMenu();
+
   authWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.includes('accounts.google.com') || url.includes('google.com/signin')) {
       shell.openExternal(url);
@@ -410,9 +599,11 @@ ipcMain.handle('twitch:login', () => new Promise((resolve) => {
     }
     return { action: 'allow' };
   });
+
   authWindow.once('ready-to-show', () => {
     if (!authWindow.isDestroyed()) authWindow.show();
   });
+
   authWindow.webContents.on('dom-ready', () => {
     authWindow.webContents.executeJavaScript(`
       try {
@@ -424,106 +615,79 @@ ipcMain.handle('twitch:login', () => new Promise((resolve) => {
     `).catch(() => {});
   });
 
-  const handleRedirect = (event, url) => {
-    if (!url.startsWith(redirectUri)) return;
-    event.preventDefault();
-    if (redirectHandled) return;
+  // O token vem no fragment: http://localhost/#access_token=TOKEN&...
+  const extractTwitchToken = (url) => {
+    if (!url.startsWith('http://localhost')) return null;
+    const hash = url.includes('#') ? url.split('#')[1] : '';
+    const params = new URLSearchParams(hash);
+    return params.get('access_token') || null;
+  };
+
+  const completeLogin = async (browserEvent, url) => {
+    const token = extractTwitchToken(url);
+    if (!token) return;
+
+    if (browserEvent?.preventDefault) browserEvent.preventDefault();
+    if (redirectHandled || settled) return;
     redirectHandled = true;
 
+    // Fecha a janela assim que o token é capturado; a consulta do username
+    // acontece em segundo plano e não deve manter a janela aberta.
+    tokenCaptured = true;
+    if (authWindow && !authWindow.isDestroyed()) authWindow.close();
+
+    let username = '';
     try {
-      const fragment = url.includes('#') ? url.split('#')[1] : '';
-      const params = new URLSearchParams(fragment);
-      const token = params.get('access_token');
-      if (!token) {
-        finish({
-          ok: false,
-          error: params.get('error_description')
-            || params.get('error')
-            || 'Token não encontrado',
-        });
+      const user = await fetchTwitchUser(token, clientId);
+      username = user?.login || '';
+    } catch (error) {
+      if (error.status === 401) {
+        finish({ ok: false, error: 'Token da Twitch inválido ou expirado.' });
         return;
       }
-
-      const oauthToken = `oauth:${token}`;
-      saveSettings({ twitchOAuthToken: oauthToken });
-      restartBots()
-        .then(() => finish({ ok: true, token: oauthToken }))
-        .catch((error) => {
-          console.error('[Twitch Auth] Erro ao reiniciar o bot:', error.message);
-          finish({ ok: false, error: 'Login concluído, mas o bot não iniciou.' });
-        });
-    } catch (error) {
-      finish({ ok: false, error: error.message });
+      // A consulta serve só para descobrir o username; o token em si veio de
+      // um redirect oficial da Twitch.
+      console.warn('[Twitch Auth] Não foi possível consultar o usuário:', error.message);
     }
+
+    finish({
+      ok: true,
+      token: sanitizeTwitchToken(token),
+      clientId,
+      username,
+    });
   };
 
-  const checkAndExtractTokens = async () => {
-    if (settled || redirectHandled || extractionHandled || authWindow.isDestroyed()) return;
-
-    try {
-      const extractedData = await authWindow.webContents.executeJavaScript(`
-        (() => {
-          const bodyText = document.body.innerText || '';
-          if (!bodyText.includes('Token Generated Successfully')
-            && !bodyText.includes('Access token')) {
-            return null;
-          }
-
-          let username = '';
-          const userMatch = bodyText.match(/Twitch account:\\s*([^\\s(?]+)/i);
-          if (userMatch) username = userMatch[1].trim();
-
-          const inputs = Array.from(document.querySelectorAll('input'));
-          const inputValues = inputs
-            .map((input) => (input.value || '').trim())
-            .filter((value) => value.length > 10);
-
-          let accessToken = '';
-          let clientId = '';
-          if (inputValues.length >= 1) accessToken = inputValues[0];
-          if (inputValues.length >= 3) clientId = inputValues[2];
-
-          return accessToken ? { accessToken, clientId, username } : null;
-        })()
-      `);
-
-      if (!extractedData?.accessToken || settled || extractionHandled) return;
-      extractionHandled = true;
-      const oauthToken = `oauth:${extractedData.accessToken}`;
-      saveSettings({
-        twitchOAuthToken: oauthToken,
-        ...(extractedData.username && { twitchUsername: extractedData.username }),
-        ...(extractedData.clientId && { twitchClientId: extractedData.clientId }),
-        ...(extractedData.username
-          && !getSettings().twitchChannel
-          && { twitchChannel: extractedData.username }),
-      });
-
-      await restartBots();
-      finish({
-        ok: true,
-        username: extractedData.username,
-        clientId: extractedData.clientId,
-        token: extractedData.accessToken,
-      });
-    } catch (error) {
-      console.error('[Twitch Auth] Erro ao extrair token:', error.message);
-    }
-  };
-
-  authWindow.webContents.on('will-redirect', handleRedirect);
-  authWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.includes('accounts.google.com') || url.includes('google.com/signin')) {
-      event.preventDefault();
-      shell.openExternal(url);
-      if (!authWindow.isDestroyed()) authWindow.close();
-      return;
-    }
-    handleRedirect(event, url);
+  // did-navigate-in-page dispara quando apenas o fragment muda; did-navigate
+  // cobre a navegação completa. will-redirect fica como terceira tentativa
+  // para builds do Chromium que abortam a requisição antes do did-navigate.
+  authWindow.webContents.on('did-navigate', (browserEvent, url) => {
+    if (!extractTwitchToken(url)) return;
+    void completeLogin(browserEvent, url);
   });
-  authWindow.webContents.on('did-finish-load', checkAndExtractTokens);
-  authWindow.webContents.on('did-navigate-in-page', checkAndExtractTokens);
-  authWindow.on('closed', () => finish({ ok: false, error: 'cancelled' }));
+
+  authWindow.webContents.on('did-navigate-in-page', (browserEvent, url) => {
+    if (!extractTwitchToken(url)) return;
+    void completeLogin(browserEvent, url);
+  });
+
+  authWindow.webContents.on('will-redirect', (browserEvent, url) => {
+    if (!url.startsWith('http://localhost')) return;
+    browserEvent.preventDefault();
+    const token = extractTwitchToken(url);
+    if (token) {
+      void completeLogin(browserEvent, url);
+    } else {
+      finish({ ok: false, error: 'Token não encontrado no redirect' });
+    }
+  });
+
+  authWindow.on('closed', () => {
+    // Se o token já foi capturado, o fecho foi intencional.
+    if (tokenCaptured) return;
+    finish({ ok: false, error: 'cancelled' });
+  });
+
   const standardUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
     + 'AppleWebKit/537.36 (KHTML, like Gecko) '
     + 'Chrome/124.0.0.0 Safari/537.36';

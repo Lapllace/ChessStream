@@ -8,6 +8,7 @@ async function openSettings() {
     'cfg-twitch-client-id': config.twitchClientId,
     'cfg-twitch-ch': config.twitchChannel,
     'cfg-twitch-username': config.twitchUsername,
+    'cfg-tiktok-username': config.tiktokUsername,
     'cfg-mp-token': config.mpAccessToken,
     'cfg-mp-min': config.mpMinValue || 5,
     'cfg-supabase-url': config.supabaseUrl,
@@ -40,6 +41,7 @@ async function saveSettings() {
       twitchClientId: $('cfg-twitch-client-id').value.trim(),
       twitchChannel: $('cfg-twitch-ch').value.trim(),
       twitchUsername: $('cfg-twitch-username').value.trim(),
+      tiktokUsername: $('cfg-tiktok-username').value.trim(),
       mpAccessToken: $('cfg-mp-token').value.trim(),
       mpMinValue: parseFloat($('cfg-mp-min').value) || 5,
       supabaseUrl: $('cfg-supabase-url').value.trim(),
@@ -64,39 +66,65 @@ async function loginTwitch() {
 
   const button = $('btn-twitch-login');
   const status = $('twitch-status');
+  const clientIdInput = $('cfg-twitch-client-id');
+  const clientId = clientIdInput.value.trim();
+
+  // O Client ID é obrigatório para montar a URL de autorização da Twitch.
+  if (!clientId) {
+    status.textContent = '❌ Client ID obrigatório';
+    status.className = 'badge badge-red';
+    clientIdInput.focus();
+    window.alert('Informe o Client ID da Twitch antes de conectar.');
+    return;
+  }
+
   isTwitchLoggingIn = true;
   button.disabled = true;
   button.textContent = 'AGUARDANDO LOGIN...';
   try {
-    const result = await settingsApi.twitchLogin();
+    const result = await settingsApi.twitchLogin(clientId);
 
-    if (result && (result.ok || result.success)) {
+    if (result?.ok && result.token) {
+      const usernameInput = $('cfg-twitch-username');
+      const channelInput = $('cfg-twitch-ch');
+
+      if (result.username) {
+        usernameInput.value = result.username;
+        if (!channelInput.value.trim()) channelInput.value = result.username;
+      }
+
+      // Persiste o token (já sanitizado com "oauth:") e o Client ID.
+      // O handler settings:save reinicia os bots com as novas credenciais.
+      const saveResult = await settingsApi.save({
+        twitchClientId: result.clientId || clientId,
+        twitchOAuthToken: result.token,
+        ...(usernameInput.value.trim() && {
+          twitchUsername: usernameInput.value.trim(),
+        }),
+        ...(channelInput.value.trim() && {
+          twitchChannel: channelInput.value.trim(),
+        }),
+      });
+
+      if (!saveResult?.ok) {
+        throw new Error('Não foi possível salvar o token da Twitch.');
+      }
+
       status.textContent = 'CONECTADO';
       status.className = 'badge badge-green';
-      if (result.username) {
-        $('cfg-twitch-username').value = result.username;
-        const channelInput = $('cfg-twitch-ch');
-        if (channelInput && !channelInput.value.trim()) {
-          channelInput.value = result.username;
-        }
-      }
-      if (result.clientId) $('cfg-twitch-client-id').value = result.clientId;
     } else if (result?.error === 'timeout') {
       status.textContent = '⏱ Tempo esgotado';
       status.className = 'badge badge-red';
-      button.textContent = 'LOGIN TWITCH';
     } else if (result?.error === 'cancelled') {
       status.textContent = 'Cancelado';
       status.className = 'badge badge-red';
-      button.textContent = 'LOGIN TWITCH';
     } else {
-      status.textContent = `❌ Erro: ${result?.error || 'desconhecido'}`;
+      status.textContent = `❌ Erro: ${result?.error || 'Token não recebido'}`;
       status.className = 'badge badge-red';
-      button.textContent = 'LOGIN TWITCH';
     }
   } catch (error) {
     console.error('[Settings] Erro no login Twitch:', error);
-    status.textContent = '❌ Falha inesperada';
+    status.textContent = `❌ ${error.message || 'Falha inesperada'}`;
     status.className = 'badge badge-red';
   } finally {
     isTwitchLoggingIn = false;
@@ -114,6 +142,34 @@ $('btn-close-settings').addEventListener('click', closeSettings);
 $('btn-cancel-settings').addEventListener('click', closeSettings);
 $('btn-save-settings').addEventListener('click', saveSettings);
 $('btn-twitch-login').addEventListener('click', loginTwitch);
+async function loginTikTok() {
+  const button = $('btn-tiktok-login');
+  if (!button) return;
+
+  button.disabled = true;
+  button.textContent = 'AGUARDANDO LOGIN...';
+  try {
+    const result = await settingsApi.tiktokLogin($('cfg-tiktok-username').value.trim());
+    if (result?.ok) {
+      window.alert('Conta TikTok autenticada com sucesso! O chat será lido sem bloqueios.');
+      button.textContent = 'TIKTOK CONECTADO';
+      button.style.background = '#00f59b';
+      button.style.color = '#000';
+    } else {
+      button.textContent = 'CONECTAR CONTA TIKTOK';
+    }
+  } catch (error) {
+    console.error('[Settings] Erro no login TikTok:', error);
+    button.textContent = 'CONECTAR CONTA TIKTOK';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+if ($('btn-tiktok-login')) {
+  $('btn-tiktok-login').addEventListener('click', loginTikTok);
+}
+
 async function loginGoogle() {
   const button = $('btn-google-login');
   const status = $('youtube-status');

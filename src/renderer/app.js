@@ -2,6 +2,7 @@
 let queue       = [];
 let isPaused    = false;
 let dragSrcIdx  = null;
+let matchHistory = [];
 
 /* ── Elementos ───────────────────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -19,9 +20,6 @@ async function init() {
   const config = await window.chessHub.getConfig();
   if (config.streamerNick) {
     $('streamerNick').textContent = config.streamerNick;
-  }
-  if (config.supabaseEnabled) {
-    $('statusSupabase').style.display = 'inline';
   }
 
   queue = await window.chessHub.getQueue();
@@ -105,6 +103,7 @@ function renderCurrentPlayer(player) {
 function platformBadge(platform) {
   if (platform === 'twitch')  return `<span class="badge badge-twitch">Twitch</span>`;
   if (platform === 'youtube') return `<span class="badge badge-youtube">YouTube</span>`;
+  if (platform === 'tiktok')  return `<span class="badge badge-tiktok">TikTok</span>`;
   if (platform === 'payment') return `<span class="badge badge-vip">💳 Pago</span>`;
   return '';
 }
@@ -197,10 +196,41 @@ window.chessHub.on('queue:paused', (state) => {
 });
 
 window.chessHub.on('chess:game-ended', ({ opponent, result }) => {
-  gameResult.className = `game-result ${result}`;
+  const cssResult = result === 'vitória' ? 'vitoria' : result;
+  gameResult.className = `game-result ${cssResult}`;
   const emoji = result === 'vitória' ? '♛' : result === 'derrota' ? '♙' : '½';
   gameResult.textContent = `${emoji} Partida encerrada contra ${opponent} — ${result}`;
   gameResult.style.display = 'block';
+});
+
+window.chessHub.on('game:result', async ({ outcome, gameUrl }) => {
+  // Atualiza o badge .game-result visível no painel principal.
+  const badge = document.getElementById('gameResult');
+  if (badge) {
+    badge.textContent = outcome === 'vitoria' ? '✓ VITÓRIA'
+      : outcome === 'empate' ? '= EMPATE'
+      : '✗ DERROTA';
+    badge.className = `game-result ${outcome}`;
+    badge.style.display = 'block';
+  }
+
+  // Atualiza o último item do histórico com o resultado da partida.
+  try {
+    const history = await window.chessHub.getHistory();
+    matchHistory = Array.isArray(history) ? history : [];
+  } catch (error) {
+    console.error('[History] Erro ao atualizar histórico:', error);
+  }
+
+  if (matchHistory.length > 0) {
+    matchHistory[matchHistory.length - 1].outcome = outcome;
+    matchHistory[matchHistory.length - 1].gameUrl = gameUrl;
+  }
+
+  // Re-renderiza o modal de histórico (a função vive em historyModal.js).
+  if (typeof renderHistory === 'function') {
+    renderHistory(matchHistory);
+  }
 });
 
 window.chessHub.on('queue:vip-alert', ({ username, chessNick, amount_cents }) => {
@@ -212,7 +242,15 @@ window.chessHub.on('queue:vip-alert', ({ username, chessNick, amount_cents }) =>
 });
 
 window.chessHub.on('chat:status', ({ platform, connected }) => {
-  const el = platform === 'twitch' ? $('statusTwitch') : $('statusYoutube');
+  const statusIds = {
+    twitch: 'statusTwitch',
+    youtube: 'statusYoutube',
+    tiktok: 'statusTiktok',
+    chess: 'statusChess',
+  };
+  const id = statusIds[platform];
+  if (!id) return;
+  const el = $(id);
   if (el) el.classList.toggle('connected', connected);
 });
 

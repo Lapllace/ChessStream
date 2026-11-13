@@ -255,6 +255,14 @@ body {
 }
 .badge-twitch { color: #c084fc; background: var(--purple-dim); }
 .badge-youtube { color: var(--red); background: var(--red-dim); }
+.badge-tiktok {
+  color: #00f2fe;
+  background:
+    linear-gradient(135deg, rgba(0, 242, 254, .14), rgba(254, 9, 121, .18)),
+    #07070b;
+  border-color: #00f2fe;
+  box-shadow: 0 0 8px rgba(254, 9, 121, .20);
+}
 .badge-vip { color: var(--gold); background: var(--gold-dim); }
 .badge-member { color: #60a5fa; background: rgba(96, 165, 250, .1); }
 .badge-green { color: var(--accent); }
@@ -267,9 +275,21 @@ body {
   font-size: 9px;
   animation: fadeIn .3s ease;
 }
-.game-result.vitoria { color: var(--accent); background: var(--accent-dim); }
-.game-result.derrota { color: var(--red); background: var(--red-dim); }
-.game-result.empate { color: var(--text-muted); background: var(--surface-2); }
+.game-result.vitoria {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.game-result.derrota {
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid var(--red);
+}
+.game-result.empate {
+  background: var(--gold-dim);
+  color: var(--gold);
+  border: 1px solid var(--gold);
+}
 
 .queue-header { gap: 12px; margin-bottom: 16px; }
 .queue-header .section-label { margin-bottom: 0; }
@@ -410,6 +430,28 @@ body {
   letter-spacing: .08em;
   text-transform: uppercase;
 }
+.settings-help {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-transform: none;
+}
+.tiktok-login-action {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 20px;
+}
+.tiktok-login-action button { width: 100%; }
+.tiktok-login-action small {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
 .settings-tab input {
   width: 100%;
   padding: 10px;
@@ -433,6 +475,47 @@ body {
 }
 .settings-twitch, .settings-youtube { grid-column: 1 / -1; justify-content: flex-start; gap: 14px; }
 .settings-actions { justify-content: flex-end; gap: 10px; margin-top: 22px; }
+
+.history-dialog { width: min(560px, calc(100vw - 32px)); }
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: #8a38d6 transparent;
+}
+.history-list::-webkit-scrollbar { width: 6px; }
+.history-list::-webkit-scrollbar-thumb { background: #8a38d6; }
+.history-list::-webkit-scrollbar-track { background: transparent; }
+.history-empty {
+  padding: 24px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  animation: fadeIn .2s ease;
+}
+.history-info { flex: 1; min-width: 0; }
+.history-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-chess { color: var(--text-muted); font-size: 11px; }
+.history-time { color: var(--text-dim); font-family: var(--mono); font-size: 10px; }
 
 #intro-overlay {
   position: fixed;

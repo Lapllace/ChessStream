@@ -1,6 +1,17 @@
 const { google } = require('googleapis');
 
 const POLL_INTERVAL_MS = 15000;
+const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const NETWORK_ERROR_CODES = [
+  'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED',
+  'ETIMEDOUT', 'EAI_AGAIN', 'ECONNABORTED',
+];
+
+function errorMessage(error) {
+  return error?.response?.data?.error?.message
+    || error?.message
+    || String(error);
+}
 
 class YouTubeBot {
   constructor(queueManager, sendToRenderer, oauth2Client = null) {
@@ -12,6 +23,9 @@ class YouTubeBot {
     this.liveChatId = process.env.YOUTUBE_LIVE_CHAT_ID;
     this.pageToken  = null;
     this.timer      = null;
+    this.polling    = false;
+    this.startTime  = 0;
+    this.consecutiveErrors = 0;
   }
 
   async connect() {
@@ -20,6 +34,8 @@ class YouTubeBot {
       return;
     }
 
+    // Evita dois intervalos de polling se connect() for chamado novamente.
+    this.disconnect();
     this.youtube = google.youtube({ version: 'v3', auth: this.oauth2Client });
 
     // Se não tiver o liveChatId no .env, tenta descobrir automaticamente
@@ -32,14 +48,37 @@ class YouTubeBot {
       return;
     }
 
+    // Valida o recurso antes de começar: liveChatMessages é o nome correto
+    // na YouTube Data API v3 (não existe youtube.liveChat.messages).
+    if (typeof this.youtube?.liveChatMessages?.list !== 'function') {
+      console.error(
+        '[YouTube] Recurso liveChatMessages indisponível no cliente googleapis. '
+        + 'Verifique a versão da biblioteca.'
+      );
+      return;
+    }
+
+    // Marca o início desta conexão. Mensagens publicadas antes deste momento
+    // são histórico da live e não devem ser reprocessadas após um restart.
+    this.startTime = Date.now();
+
     console.log(`[YouTube] Monitorando chat: ${this.liveChatId}`);
     this.send('chat:status', { platform: 'youtube', connected: true });
-    this.poll();
-    this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
+    this.poll().catch((error) => {
+      console.error('[YouTube] Erro inesperado no primeiro poll:', errorMessage(error));
+    });
+    this.timer = setInterval(() => {
+      this.poll().catch((error) => {
+        console.error('[YouTube] Erro inesperado no ciclo de polling:', errorMessage(error));
+      });
+    }, POLL_INTERVAL_MS);
   }
 
   disconnect() {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   async discoverLiveChatId() {
@@ -49,36 +88,62 @@ class YouTubeBot {
         broadcastStatus: 'active',
       });
 
-      const broadcast = data.items?.[0];
-      if (broadcast) {
+      const broadcast = data?.items?.[0];
+      if (broadcast?.snippet?.liveChatId) {
         this.liveChatId = broadcast.snippet.liveChatId;
         console.log(`[YouTube] Live encontrada: ${this.liveChatId}`);
       }
     } catch (err) {
-      console.error('[YouTube] Erro ao buscar live:', err.message);
+      console.error('[YouTube] Erro ao buscar live:', errorMessage(err));
     }
   }
 
   async poll() {
-    if (!this.liveChatId) return;
+    if (!this.liveChatId || !this.youtube) return;
+
+    // Impede ciclos sobrepostos quando uma resposta demora mais que o intervalo.
+    if (this.polling) return;
+    this.polling = true;
 
     try {
       const params = {
         part: ['snippet', 'authorDetails'],
         liveChatId: this.liveChatId,
+        maxResults: 200,
       };
       if (this.pageToken) params.pageToken = this.pageToken;
 
-      const { data } = await this.youtube.liveChat.messages.list(params);
+      // API oficial do YouTube Data v3: youtube.liveChatMessages.list
+      const response = await this.youtube.liveChatMessages.list(params);
+      const data = response?.data;
 
-      this.pageToken = data.nextPageToken;
+      // Validação defensiva da resposta antes de iterar.
+      if (!data || !Array.isArray(data.items)) {
+        console.warn(
+          '[YouTube] Resposta inesperada da API de chat:',
+          data ? Object.keys(data) : data
+        );
+        return;
+      }
 
-      for (const item of data.items || []) {
-        const text     = item.snippet?.displayMessage?.trim();
-        const username = item.authorDetails?.displayName;
-        const isMember = item.authorDetails?.isChatSponsor;
+      // Se a API não devolver nextPageToken, mantém o anterior para não
+      // reprocessar o histórico inteiro.
+      if (data.nextPageToken) {
+        this.pageToken = data.nextPageToken;
+      }
+
+      for (const item of data.items) {
+        const text     = item?.snippet?.displayMessage?.trim();
+        const username = item?.authorDetails?.displayName;
+        const isMember = item?.authorDetails?.isChatSponsor;
 
         if (!text || !username) continue;
+
+        // Ignora mensagens anteriores ao início desta conexão. Sem isto, o
+        // primeiro poll após reiniciar o app reprocessa o histórico da live.
+        const publishedAt = item?.snippet?.publishedAt;
+        const publishedAtMs = publishedAt ? new Date(publishedAt).getTime() : NaN;
+        if (Number.isFinite(publishedAtMs) && publishedAtMs < this.startTime) continue;
 
         // Detecta membership YouTube
         if (isMember) {
@@ -89,16 +154,54 @@ class YouTubeBot {
           });
         }
 
-        await this.handleMessage(username, text, isMember);
+        try {
+          await this.handleMessage(username, text, isMember);
+        } catch (messageError) {
+          // Uma mensagem inválida não pode interromper o resto do lote.
+          console.error(
+            '[YouTube] Erro ao processar mensagem de',
+            username,
+            '—',
+            errorMessage(messageError)
+          );
+        }
       }
+
+      this.consecutiveErrors = 0;
     } catch (err) {
-      if (err.response?.status === 403) {
-        console.error('[YouTube] Quota excedida ou live encerrada.');
-        clearInterval(this.timer);
+      const status = err?.response?.status;
+      const reason = err?.response?.data?.error?.errors?.[0]?.reason
+        || err?.errors?.[0]?.reason
+        || '';
+      const message = errorMessage(err);
+
+      if (status === 403 || /quotaExceeded|liveChatEnded|liveChatNotFound/i.test(reason)) {
+        console.error('[YouTube] Quota excedida ou live encerrada. Polling interrompido.');
+        this.disconnect();
         this.send('chat:status', { platform: 'youtube', connected: false });
       } else {
-        console.error('[YouTube] Erro no polling:', err.message);
+        const isNetworkError = NETWORK_ERROR_CODES.some(
+          (code) => err.code === code
+            || err.cause?.code === code
+            || err.message?.includes(code)
+        );
+
+        if (isNetworkError) {
+          this.consecutiveErrors = (this.consecutiveErrors || 0) + 1;
+          // Backoff exponencial: 5s, 10s, 20s, 40s, máximo 60s
+          const backoff = Math.min(5000 * Math.pow(2, this.consecutiveErrors - 1), 60000);
+          console.warn(
+            `[${this.constructor.name}] Rede indisponível (tentativa ${this.consecutiveErrors}). `
+            + `Aguardando ${backoff / 1000}s...`
+          );
+          await sleepMs(backoff);
+        } else {
+          // Erro de lógica — esse sim vale logar
+          console.error(`[${this.constructor.name}] Erro inesperado:`, message);
+        }
       }
+    } finally {
+      this.polling = false;
     }
   }
 
