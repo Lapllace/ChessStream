@@ -9,7 +9,12 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
-const { getSettings, getPublicSettings, saveSettings, applyToEnv } = require('./settings');
+const { getSettings, getPublicSettings, getLivepixConfig, saveSettings, applyToEnv } = require('./settings');
+const {
+  buildWebhookUrl,
+  hasLivepixCredentials,
+  syncStreamerConfig,
+} = require('./livepixConfig');
 
 // Servidor do overlay OBS
 let overlayServer = null;
@@ -302,7 +307,7 @@ app.whenReady().then(async () => {
   // descriptografa o token da Twitch) roda aqui e não no topo do módulo.
   applyToEnv();
 
-  queueManager = new QueueManager(sendToRenderer);
+  queueManager = new QueueManager(sendToRenderer, () => getSettings().streamerId);
   chessMonitor  = new ChessMonitor(queueManager, sendToRenderer);
   createWindow();
   startOverlayServer();
@@ -389,7 +394,9 @@ async function restartBotsInternal() {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
   if (supabaseUrl && supabaseKey) {
     const SupabaseListener = require('./supabaseListener');
-    const listener = new SupabaseListener(queueManager, sendToRenderer);
+    const listener = new SupabaseListener(queueManager, sendToRenderer, {
+      getStreamerId: () => getSettings().streamerId,
+    });
     supabaseListener = listener;
     try {
       await listener.start();
@@ -614,9 +621,50 @@ ipcMain.handle('settings:save', async (_, partial) => {
     settings.tiktokUsername = loggedInTikTokUser;
   }
   saveSettings(settings);
+
+  // Publica as credenciais LivePix do streamer no Supabase. Falhas não
+  // impedem o uso local, mas voltam para a UI para o usuário corrigir.
+  // Só sincroniza quando o salvamento toca em algo relevante para o webhook.
+  const livepixTouched = [
+    'livepixClientId',
+    'livepixClientSecret',
+    'livepixWebhookBaseUrl',
+    'supabaseUrl',
+    'supabaseAnonKey',
+  ].some((key) => Object.prototype.hasOwnProperty.call(settings, key));
+
+  const livepix = livepixTouched ? await syncLivepixConfig() : null;
+
   await restartBots();
-  return { ok: true };
+  return { ok: true, livepix };
 });
+
+/**
+ * Sincroniza streamer_configs e devolve a URL pronta para o painel do LivePix.
+ * A URL é sempre reconstruída a partir da identidade local (streamer_id +
+ * webhook_secret), mesmo quando o Supabase ainda não foi configurado.
+ */
+async function syncLivepixConfig() {
+  const config = getLivepixConfig();
+  const configured = hasLivepixCredentials(config);
+  const webhookUrl = buildWebhookUrl({
+    baseUrl: config.baseUrl,
+    streamerId: config.streamerId,
+    secret: config.webhookSecret,
+  });
+
+  if (!configured) {
+    return { configured: false, synced: false, webhookUrl, error: null };
+  }
+
+  const result = await syncStreamerConfig(config);
+  return {
+    configured: true,
+    synced: result.ok,
+    webhookUrl,
+    error: result.ok ? null : result.error,
+  };
+}
 
 async function fetchTwitchUser(accessToken, clientId) {
   const response = await fetch('https://api.twitch.tv/helix/users', {

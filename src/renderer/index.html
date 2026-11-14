@@ -160,6 +160,33 @@
           </div>
         </div>
         <div class="settings-tab" data-tab="payments">
+          <div class="settings-livepix">
+            <h3 data-i18n="livepixTitle">LivePix (VIP via PIX)</h3>
+            <p class="settings-help" data-i18n="livepixHint">
+              Use as credenciais da sua própria aplicação LivePix. A fila VIP fica isolada por streamer.
+            </p>
+            <label>
+              <span data-i18n="lblLivepixClientId">LivePix Client ID</span>
+              <input id="cfg-livepix-client-id" type="text" autocomplete="off" placeholder="livepix_client_id">
+            </label>
+            <label>
+              <span data-i18n="lblLivepixClientSecret">LivePix Client Secret</span>
+              <input id="cfg-livepix-client-secret" type="password" autocomplete="new-password" placeholder="••••••••">
+            </label>
+            <div class="settings-livepix-status">
+              <span><span data-i18n="statusLabel">Status:</span> <strong id="livepix-status" class="badge badge-red">Não configurado</strong></span>
+            </div>
+            <label>
+              <span data-i18n="lblLivepixWebhook">URL do Webhook</span>
+              <div class="copy-row">
+                <input id="cfg-livepix-webhook" type="text" readonly>
+                <button class="btn btn-ghost" id="btn-copy-livepix-webhook" type="button" data-i18n="btnCopyWebhook">Copiar</button>
+              </div>
+            </label>
+            <small class="settings-help" data-i18n="livepixWebhookHint">
+              Cole esta URL no painel do LivePix. Ela já inclui a identificação e o segredo desta instalação.
+            </small>
+          </div>
           <label>
             <span data-i18n="lblMpToken">Token Mercado Pago</span>
             <input id="cfg-mp-token" type="password">
@@ -178,6 +205,13 @@
             <span data-i18n="lblSupabaseKey">Chave anon Supabase</span>
             <input id="cfg-supabase-key" type="password">
           </label>
+          <label>
+            <span data-i18n="lblLivepixBaseUrl">URL base do webhook LivePix</span>
+            <input id="cfg-livepix-base" type="url" placeholder="https://seu-projeto.vercel.app/api/livepix">
+          </label>
+          <small class="settings-help" data-i18n="livepixBaseHint">
+            Só altere se você mesmo hospedar a função do webhook na Vercel.
+          </small>
         </div>
       </div>
       <div class="settings-actions">

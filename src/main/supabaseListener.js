@@ -4,17 +4,29 @@ const CHANNEL_NAME = 'fila_vip';
 const SUBSCRIBE_TIMEOUT_MS = 15000;
 
 class SupabaseListener {
-  constructor(queueManager, sendToRenderer) {
+  constructor(queueManager, sendToRenderer, options = {}) {
     this.queue  = queueManager;
     this.send   = sendToRenderer;
     // Resolvido no start(): o cliente pode ter sido recriado por
     // reconnectSupabase() enquanto o app estava aberto.
     this.client = null;
     this.channel = null;
+    // streamer_id da instalação. Vazio = modo legado (sem filtro).
+    this.getStreamerId = typeof options.getStreamerId === 'function'
+      ? options.getStreamerId
+      : () => '';
     // Serializa start/stop. Sem isto, dois start() concorrentes reutilizam o
     // mesmo tópico e o segundo tenta adicionar postgres_changes depois do
     // subscribe(), gerando: "cannot add postgres_changes callbacks ... after subscribe()".
     this.lifecycle = Promise.resolve();
+  }
+
+  get streamerId() {
+    try {
+      return String(this.getStreamerId() || '').trim();
+    } catch {
+      return '';
+    }
   }
 
   start() {
@@ -47,6 +59,14 @@ class SupabaseListener {
 
     console.log('[Supabase] Conectando ao canal Realtime...');
 
+    // Filtro no servidor: a instância só recebe eventos da própria fila.
+    // Sem streamer_id (modo legado) mantém a assinatura global anterior.
+    const streamerId = this.streamerId;
+    const queueFilter = streamerId ? { filter: `streamer_id=eq.${streamerId}` } : {};
+    if (streamerId) {
+      console.log(`[Supabase] Filtrando fila pelo streamer ${streamerId}.`);
+    }
+
     const channel = this.client.channel(CHANNEL_NAME);
     this.channel = channel;
 
@@ -63,7 +83,7 @@ class SupabaseListener {
     // o app só veria a fila VIP depois de um restart.
     channel.on(
       'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'queue' },
+      { event: 'INSERT', schema: 'public', table: 'queue', ...queueFilter },
       (payload) => {
         this.handleQueueInsert(payload.new)
           .catch((error) => console.error('[Supabase] Erro ao processar entrada na fila:', error));
@@ -72,13 +92,13 @@ class SupabaseListener {
 
     channel.on(
       'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'queue' },
+      { event: 'UPDATE', schema: 'public', table: 'queue', ...queueFilter },
       () => this.refreshQueue()
     );
 
     channel.on(
       'postgres_changes',
-      { event: 'DELETE', schema: 'public', table: 'queue' },
+      { event: 'DELETE', schema: 'public', table: 'queue', ...queueFilter },
       () => this.refreshQueue()
     );
 
@@ -150,6 +170,12 @@ class SupabaseListener {
   async handleQueueInsert(row) {
     if (!row) return;
 
+    // Defesa extra: o filtro do Realtime já é por streamer_id, mas uma linha
+    // antiga (sem streamer_id) ou um evento de outro tenant nunca deve
+    // atualizar o painel desta instalação.
+    const streamerId = this.streamerId;
+    if (streamerId && row.streamer_id !== streamerId) return;
+
     await this.refreshQueue();
 
     let metadata = {};
@@ -170,6 +196,11 @@ class SupabaseListener {
   }
 
   async handleVipPayment(row) {
+    // fila_vip é o fluxo legado do Mercado Pago e não possui streamer_id.
+    // Só descartamos quando a linha explicitamente pertence a outro streamer.
+    const streamerId = this.streamerId;
+    if (streamerId && row?.streamer_id && row.streamer_id !== streamerId) return;
+
     const { username, chess_nick, amount_cents } = row;
     console.log(`[Supabase] Pagamento recebido: ${username} (R$${amount_cents / 100})`);
 

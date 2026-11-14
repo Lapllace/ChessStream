@@ -14,8 +14,21 @@ async function openSettings() {
     'cfg-supabase-url': config.supabaseUrl,
     'cfg-supabase-key': config.supabaseAnonKey,
     'cfg-language': config.language || 'pt',
+    'cfg-livepix-client-id': config.livepixClientId,
+    'cfg-livepix-base': config.livepixWebhookBaseUrl,
+    'cfg-livepix-webhook': config.livepixWebhookUrl,
   };
   for (const [id, value] of Object.entries(fields)) $(id).value = value || '';
+
+  // O segredo nunca sai do processo principal: mostramos só o placeholder.
+  const livepixSecret = $('cfg-livepix-client-secret');
+  if (livepixSecret) {
+    livepixSecret.value = '';
+    livepixSecret.placeholder = config.livepixConfigured
+      ? t('livepixSecretSavedPlaceholder', 'Salvo — deixe em branco para manter')
+      : t('livepixSecretPlaceholder', 'Client Secret do LivePix');
+  }
+  updateLivepixStatus(Boolean(config.livepixConfigured), config.livepixWebhookUrl);
 
   const twitchStatus = $('twitch-status');
   twitchStatus.textContent = config.hasTwitchToken ? 'Conectado' : 'Não conectado';
@@ -32,13 +45,57 @@ async function openSettings() {
     : 'badge badge-red';
 }
 
+function updateLivepixStatus(configured, webhookUrl = '', error = '') {
+  const status = $('livepix-status');
+  if (!status) return;
+
+  status.title = error || '';
+  if (error) {
+    status.textContent = t('livepixSyncError', 'Erro ao sincronizar');
+    status.className = 'badge badge-red';
+    return;
+  }
+
+  status.textContent = configured
+    ? t('livepixConnected', 'Configurado')
+    : t('livepixNotConfigured', 'Não configurado');
+  status.className = configured ? 'badge badge-green' : 'badge badge-red';
+
+  const webhookInput = $('cfg-livepix-webhook');
+  if (webhookInput && webhookUrl) webhookInput.value = webhookUrl;
+}
+
+async function copyLivepixWebhook() {
+  const input = $('cfg-livepix-webhook');
+  const button = $('btn-copy-livepix-webhook');
+  const value = (input?.value || '').trim();
+  if (!value) return;
+
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    input.removeAttribute('readonly');
+    input.select();
+    document.execCommand('copy');
+    input.setAttribute('readonly', 'readonly');
+  }
+
+  if (button) {
+    button.textContent = t('copied', 'Copiado!');
+    setTimeout(() => {
+      button.textContent = t('btnCopyWebhook', 'Copiar');
+    }, 1500);
+  }
+}
+
 async function saveSettings() {
   const button = $('btn-save-settings');
   const language = $('cfg-language')?.value || 'pt';
+  const livepixSecret = $('cfg-livepix-client-secret')?.value.trim() || '';
   button.disabled = true;
   button.textContent = t('saving', 'Salvando...');
   try {
-    const result = await settingsApi.save({
+    const payload = {
       chessStreamerNick: $('cfg-chess-nick').value.trim(),
       twitchClientId: $('cfg-twitch-client-id').value.trim(),
       twitchChannel: $('cfg-twitch-ch').value.trim(),
@@ -48,13 +105,39 @@ async function saveSettings() {
       mpMinValue: parseFloat($('cfg-mp-min').value) || 5,
       supabaseUrl: $('cfg-supabase-url').value.trim(),
       supabaseAnonKey: $('cfg-supabase-key').value.trim(),
+      livepixClientId: $('cfg-livepix-client-id').value.trim(),
+      livepixWebhookBaseUrl: $('cfg-livepix-base').value.trim(),
       language,
-    });
+    };
+
+    // Campo vazio não apaga o segredo salvo (o main também protege isso).
+    if (livepixSecret) payload.livepixClientSecret = livepixSecret;
+
+    const result = await settingsApi.save(payload);
     if (!result.ok) throw new Error('Não foi possível salvar as configurações.');
 
     // Aplica o novo idioma sem esperar reiniciar o app.
     applyLanguage(language);
     if (typeof renderQueue === 'function') renderQueue();
+
+    const livepix = result.livepix || {};
+    if (livepix.webhookUrl) {
+      const webhookInput = $('cfg-livepix-webhook');
+      if (webhookInput) webhookInput.value = livepix.webhookUrl;
+    }
+
+    if (livepix.configured && !livepix.synced) {
+      updateLivepixStatus(true, livepix.webhookUrl, livepix.error || 'Falha ao publicar no Supabase');
+      button.textContent = t('savedLocally', 'Salvo localmente');
+      button.disabled = false;
+      setTimeout(() => {
+        if (!button.disabled) button.textContent = t('save', 'Salvar');
+      }, 2500);
+      return;
+    }
+
+    updateLivepixStatus(Boolean(livepix.configured), livepix.webhookUrl);
+    if (livepixSecret) $('cfg-livepix-client-secret').value = '';
 
     button.textContent = t('saved', 'Salvo!');
     setTimeout(() => {
@@ -150,6 +233,11 @@ $('btn-close-settings').addEventListener('click', closeSettings);
 $('btn-cancel-settings').addEventListener('click', closeSettings);
 $('btn-save-settings').addEventListener('click', saveSettings);
 $('btn-twitch-login').addEventListener('click', loginTwitch);
+
+const copyWebhookButton = $('btn-copy-livepix-webhook');
+if (copyWebhookButton) {
+  copyWebhookButton.addEventListener('click', copyLivepixWebhook);
+}
 async function loginTikTok() {
   const button = $('btn-tiktok-login');
   if (!button) return;

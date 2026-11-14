@@ -16,8 +16,10 @@ const PRIORITY = {
 };
 
 class QueueManager {
-  constructor(sendToRenderer) {
+  constructor(sendToRenderer, getStreamerId = () => '') {
     this.send = sendToRenderer;
+    // Função (não valor): o streamer_id é gerado/alterado enquanto o app roda.
+    this.getStreamerId = typeof getStreamerId === 'function' ? getStreamerId : () => '';
     this.paused = false;
     this.currentPlayer = null;
     this.matchHistory = [];
@@ -30,6 +32,25 @@ class QueueManager {
    */
   get supabase() {
     return getSupabaseClient();
+  }
+
+  /** Identificador da instalação; vazio = modo legado (uma única fila). */
+  get streamerId() {
+    try {
+      return String(this.getStreamerId() || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Isola as consultas da fila por streamer. Sem streamer_id configurado o
+   * comportamento antigo (fila global) é preservado para não quebrar
+   * instalações que ainda não ativaram o LivePix.
+   */
+  scopeToStreamer(query) {
+    const id = this.streamerId;
+    return id ? query.eq('streamer_id', id) : query;
   }
 
   assertSupabase() {
@@ -138,10 +159,14 @@ class QueueManager {
 
   async getQueue() {
     this.assertSupabase();
-    const { data, error } = await this.supabase
-      .from('queue')
-      .select('*')
-      .in('status', ['pending', 'playing'])
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .select('*')
+        .in('status', ['pending', 'playing'])
+    );
+
+    const { data, error } = await query
       .order('position', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true });
 
@@ -166,10 +191,14 @@ class QueueManager {
   }
 
   async nextPosition() {
-    const { data, error } = await this.supabase
-      .from('queue')
-      .select('position')
-      .eq('status', 'pending')
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .select('position')
+        .eq('status', 'pending')
+    );
+
+    const { data, error } = await query
       .order('position', { ascending: false, nullsFirst: false })
       .limit(1);
 
@@ -182,6 +211,7 @@ class QueueManager {
     const { data, error } = await this.supabase
       .from('queue')
       .insert({
+        streamer_id: this.streamerId || null,
         player_name: username,
         chess_username: chessNick || null,
         platform: platform || 'chess.com',
@@ -267,11 +297,18 @@ class QueueManager {
 
   async removeFromQueue(username, reason = 'removed') {
     this.assertSupabase();
-    const { error } = await this.supabase
-      .from('queue')
-      .delete()
-      .eq('player_name', username)
-      .in('status', ['pending', 'playing']);
+    // Soft delete: o schema revoga DELETE de anon/authenticated, então a saída
+    // da fila é registrada como 'cancelled'. As consultas da fila filtram por
+    // status, portanto a linha deixa de aparecer sem apagar o histórico.
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .update({ status: 'cancelled' })
+        .eq('player_name', username)
+        .in('status', ['pending', 'playing'])
+    );
+
+    const { error } = await query;
     if (error) throw error;
 
     // Se quem saiu da fila era o jogador em "Jogando Agora", registra no
@@ -294,10 +331,14 @@ class QueueManager {
 
   async next() {
     this.assertSupabase();
-    const { data, error } = await this.supabase
-      .from('queue')
-      .select('*')
-      .eq('status', 'pending')
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .select('*')
+        .eq('status', 'pending')
+    );
+
+    const { data, error } = await query
       .order('position', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(1)
@@ -360,12 +401,14 @@ class QueueManager {
 
   async updatePlayer(id, changes) {
     this.assertSupabase();
-    const { data, error } = await this.supabase
-      .from('queue')
-      .update(changes)
-      .eq('id', id)
-      .select()
-      .single();
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .update(changes)
+        .eq('id', id)
+    );
+
+    const { data, error } = await query.select().single();
     if (error) throw error;
     return this.toPlayer(data);
   }

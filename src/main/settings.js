@@ -1,6 +1,12 @@
 const { app, safeStorage } = require('electron');
 const { default: Store } = require('electron-store');
 const { reconnectSupabase } = require('./database');
+const {
+  DEFAULT_WEBHOOK_BASE_URL,
+  buildWebhookUrl,
+  generateStreamerId,
+  generateWebhookSecret,
+} = require('./livepixConfig');
 
 /**
  * Valores gravados pelo safeStorage recebem este prefixo para que consigamos
@@ -15,6 +21,8 @@ const SECRET_KEYS = [
   'youtubeRefreshToken',
   'tiktokSessionId',
   'mpAccessToken',
+  'livepixClientSecret',
+  'livepixWebhookSecret',
 ];
 
 const schema = {
@@ -34,6 +42,12 @@ const schema = {
   supabaseUrl:       { type: 'string', default: '' },
   supabaseAnonKey:   { type: 'string', default: '' },
   language:          { type: 'string', default: 'pt' },
+  // ── LivePix (SaaS) ──────────────────────────────────────────────
+  streamerId:            { type: 'string', default: '' },
+  livepixClientId:       { type: 'string', default: '' },
+  livepixClientSecret:   { type: 'string', default: '' },
+  livepixWebhookSecret:  { type: 'string', default: '' },
+  livepixWebhookBaseUrl: { type: 'string', default: DEFAULT_WEBHOOK_BASE_URL },
 };
 
 const store = new Store({
@@ -111,13 +125,29 @@ function getPublicSettings() {
     youtubeAccessToken,
     youtubeRefreshToken,
     tiktokSessionId,
+    livepixClientSecret,
+    livepixWebhookSecret,
     ...publicSettings
   } = settings;
+
+  const streamerId = String(settings.streamerId || '');
+  const webhookUrl = streamerId && settings.livepixWebhookSecret
+    ? buildWebhookUrl({
+      baseUrl: settings.livepixWebhookBaseUrl,
+      streamerId,
+      secret: settings.livepixWebhookSecret,
+    })
+    : '';
 
   return {
     ...publicSettings,
     hasTwitchToken: Boolean(twitchOAuthToken),
     youtubeConnected: Boolean(youtubeAccessToken),
+    livepixConfigured: Boolean(
+      String(settings.livepixClientId || '').trim()
+      && String(settings.livepixClientSecret || '').trim()
+    ),
+    livepixWebhookUrl: webhookUrl,
   };
 }
 
@@ -134,6 +164,41 @@ function saveSettings(partial) {
   }
   if (typeof values.twitchUsername === 'string') {
     values.twitchUsername = values.twitchUsername.trim();
+  }
+
+  // ── LivePix (multi-streamer) ─────────────────────────────────────
+  if (typeof values.livepixClientId === 'string') {
+    values.livepixClientId = values.livepixClientId.trim();
+  }
+  if (typeof values.livepixWebhookBaseUrl === 'string') {
+    values.livepixWebhookBaseUrl = values.livepixWebhookBaseUrl.trim();
+  }
+
+  const incomingClientId = typeof values.livepixClientId === 'string'
+    ? values.livepixClientId
+    : '';
+  const incomingSecret = typeof values.livepixClientSecret === 'string'
+    ? values.livepixClientSecret.trim()
+    : '';
+
+  // O modal nunca devolve o segredo salvo; campo vazio significa "manter".
+  if (Object.prototype.hasOwnProperty.call(values, 'livepixClientSecret') && !incomingSecret) {
+    delete values.livepixClientSecret;
+  }
+
+  // Ativa o modo multi-tenant na primeira vez que houver credenciais.
+  // Depois disso a identidade é mantida mesmo se o usuário limpar os campos.
+  const hasStoredSecret = Boolean(store.get('livepixClientSecret'));
+  const activatesLivepix = Boolean(store.get('streamerId'))
+    || Boolean(incomingClientId && (incomingSecret || hasStoredSecret));
+
+  if (activatesLivepix) {
+    if (!store.get('streamerId')) {
+      values.streamerId = generateStreamerId();
+    }
+    if (!store.get('livepixWebhookSecret')) {
+      values.livepixWebhookSecret = generateWebhookSecret();
+    }
   }
 
   // Criptografa apenas o que está sendo gravado nesta chamada.
@@ -159,6 +224,21 @@ function saveSettings(partial) {
   if (touchesSupabase) {
     reconnectSupabase(store.get('supabaseUrl'), store.get('supabaseAnonKey'));
   }
+}
+
+/**
+ * Dados usados pelo handler de settings:save para publicar as credenciais no
+ * Supabase e montar a URL exibida ao streamer.
+ */
+function getLivepixConfig() {
+  const settings = getSettings();
+  return {
+    streamerId: String(settings.streamerId || ''),
+    clientId: String(settings.livepixClientId || '').trim(),
+    clientSecret: String(settings.livepixClientSecret || '').trim(),
+    webhookSecret: String(settings.livepixWebhookSecret || ''),
+    baseUrl: String(settings.livepixWebhookBaseUrl || DEFAULT_WEBHOOK_BASE_URL),
+  };
 }
 
 function applyToEnv() {
@@ -195,6 +275,7 @@ function applyToEnv() {
 module.exports = {
   getSettings,
   getPublicSettings,
+  getLivepixConfig,
   saveSettings,
   applyToEnv,
 };

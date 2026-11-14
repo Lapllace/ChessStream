@@ -606,6 +606,28 @@ body {
   border-left: 2px solid var(--border);
 }
 .settings-twitch, .settings-youtube { grid-column: 1 / -1; justify-content: flex-start; gap: 14px; }
+.settings-livepix {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 18px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-livepix h3 {
+  color: var(--accent);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.settings-livepix p { margin: 0; }
+.settings-livepix-status { display: flex; justify-content: flex-start; }
+.copy-row { display: flex; align-items: stretch; gap: 8px; }
+.copy-row input { flex: 1 1 auto; min-width: 0; }
+.copy-row .btn { flex: 0 0 auto; white-space: nowrap; }
 .settings-actions { justify-content: flex-end; gap: 10px; margin-top: 22px; }
 
 .history-dialog { width: min(560px, calc(100vw - 32px)); }
