@@ -32,9 +32,10 @@ Software ("Termos"). Caso não concorde, não instale e não utilize o software.
      intransferível, não sublicenciável e revogável de uso do Software, pelo
      prazo de vigência da licença adquirida, exclusivamente para fins
      profissionais ou pessoais de gerenciamento de filas e transmissões.
-2.2. A licença é vinculada ao dispositivo e/ou ao usuário identificado no
-     momento da ativação, conforme os mecanismos técnicos de validação do
-     Software.
+2.2. A licença é pessoal e vinculada ao Licenciado, não a um computador
+     específico. O Licenciado pode ativar a mesma chave em outro computador
+     pessoal de seu uso, desde que respeitado o uso individual e não simultâneo,
+     nos termos da Seção 4.
 2.3. O número de instalações, dispositivos e usuários simultâneos permitidos é
      definido no ato da compra ou no plano contratado.
 2.4. A licença não concede qualquer direito sobre marcas, logotipos, código-
@@ -51,8 +52,8 @@ Software ("Termos"). Caso não concorde, não instale e não utilize o software.
          código-fonte, exceto na extensão permitida por lei aplicável;
      (c) remover, ocultar ou alterar avisos de direitos autorais, marcas ou
          mecanismos de proteção e validação de licença;
-     (d) contornar, burlar ou manipular o sistema de licenças, o identificador
-         de hardware (HWID) ou qualquer mecanismo de autenticação;
+     (d) contornar, burlar ou manipular o sistema de licenças, a chave de
+         ativação ou qualquer mecanismo de autenticação;
      (e) utilizar o Software para atividades ilícitas, fraudulentas, abusivas,
          de assédio, discriminação ou que violem os termos das plataformas
          integradas;
@@ -62,20 +63,28 @@ Software ("Termos"). Caso não concorde, não instale e não utilize o software.
      licença, sem prejuízo das medidas legais cabíveis.
 
 ──────────────────────────────────────────────────────────────────────────────
-4. ATIVAÇÃO, VALIDAÇÃO E IDENTIFICADOR DE HARDWARE (HWID)
+4. ATIVAÇÃO, VALIDAÇÃO E LICENÇA DE USO
 ──────────────────────────────────────────────────────────────────────────────
-4.1. O Software pode exigir ativação online e validação periódica da licença.
-4.2. Para fins exclusivos de validação de licença e prevenção de uso não
-     autorizado, o Software coleta e transmite um identificador de hardware
-     (HWID) derivado de características do dispositivo.
-4.3. O HWID não é utilizado para rastreamento publicitário, perfilamento
-     comportamental ou compartilhamento com terceiros estranhos à operação do
-     Software.
-4.4. A ausência de conexão com os servidores de licença pode impedir o uso
-     total ou parcial do Software, conforme os prazos de tolerância offline
-     definidos na documentação técnica.
-4.5. Os dados tratados na ativação são regidos pela Política de Privacidade
-     disponível em docs/PRIVACY.md, parte integrante destes Termos.
+4.1. O Software é licenciado por assinatura mensal, renovável. Cada licença
+     corresponde a uma chave de ativação no formato CSH-XXXX-XXXX-XXXX, com
+     validade de 30 (trinta) dias contados a partir da primeira ativação.
+4.2. A chave é pessoal e não é vinculada a identificador de hardware, número de
+     série, UUID, endereço MAC ou qualquer outro dado do equipamento. O
+     Licenciado pode utilizar a mesma chave em outro computador pessoal de seu
+     uso, mediante nova ativação, desde que respeitado o uso individual e não
+     simultâneo (uma única sessão ativa por vez).
+4.3. O Software realiza verificação periódica online da licença, em intervalos
+     de até 3 (três) dias, de forma silenciosa e automática. Para a validação
+     são transmitidos apenas a chave de ativação e a ação solicitada (ativação
+     ou verificação), conforme a Política de Privacidade.
+4.4. A ausência de conexão com os servidores de licença pode impedir o uso total
+     ou parcial do Software após o término do prazo de validade da licença ou do
+     período de tolerância offline definido na documentação técnica.
+4.5. O vencimento, a revogação ou o uso indevido da chave — incluindo
+     compartilhamento com terceiros, uso simultâneo ou cessão não autorizada —
+     autoriza a suspensão da licença, sem prejuízo das medidas legais cabíveis.
+4.6. Os dados tratados na ativação e validação são regidos pela Política de
+     Privacidade disponível em docs/PRIVACY.md, parte integrante destes Termos.
 
 ──────────────────────────────────────────────────────────────────────────────
 5. SERVIÇOS E INTEGRAÇÕES DE TERCEIROS
