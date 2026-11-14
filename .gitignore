@@ -23,7 +23,9 @@ web_modules/
 
 # ─── BUILDS E EMPACOTAMENTO (Electron / Vercel) ───────────
 dist/
-build/
+build/*
+!build/icon.ico
+!build/icon.png
 out/
 release/
 .vercel/

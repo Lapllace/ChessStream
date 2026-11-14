@@ -57,6 +57,20 @@ CREATE TABLE IF NOT EXISTS public.streamer_configs (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Licenças comerciais (HWID + chave de ativação). A anon key nunca lê nem
+-- escreve direto: a validação/ativação acontece pela função
+-- verify_and_activate_license() definida na seção de segurança.
+CREATE TABLE IF NOT EXISTS public.licenses (
+  license_key    TEXT PRIMARY KEY,
+  customer_email TEXT,
+  hwid           TEXT,
+  status         TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'revoked', 'expired')),
+  expires_at     TIMESTAMPTZ,
+  activated_at   TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Histórico de partidas
 CREATE TABLE IF NOT EXISTS public.match_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -94,6 +108,7 @@ ALTER TABLE public.profiles         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.queue            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.match_history    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.streamer_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.licenses         ENABLE ROW LEVEL SECURITY;
 
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 
@@ -104,6 +119,7 @@ REVOKE ALL ON public.profiles         FROM anon, authenticated;
 REVOKE ALL ON public.queue            FROM anon, authenticated;
 REVOKE ALL ON public.match_history    FROM anon, authenticated;
 REVOKE ALL ON public.streamer_configs FROM anon, authenticated;
+REVOKE ALL ON public.licenses         FROM anon, authenticated;
 
 -- O app desktop (anon) lê os pagamentos legados do Mercado Pago.
 GRANT SELECT ON public.fila_vip TO anon;
@@ -116,6 +132,10 @@ GRANT SELECT, INSERT, UPDATE
 -- A service_role (webhook) lê as credenciais. anon/authenticated NÃO têm
 -- acesso direto: a escrita ocorre só pela função SECURITY DEFINER abaixo.
 GRANT SELECT ON public.streamer_configs TO service_role;
+
+-- Suporte/backoffice: service_role consulta licenças (ex.: painel do vendor).
+-- anon/authenticated continuam sem qualquer acesso direto à tabela.
+GRANT SELECT ON public.licenses TO service_role;
 
 -- Reforço explícito: nenhuma tabela concede DELETE a anon/authenticated.
 REVOKE DELETE
@@ -168,6 +188,130 @@ $$;
 -- Executa apenas a função; nunca a tabela.
 REVOKE ALL ON FUNCTION public.register_streamer_config(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.register_streamer_config(TEXT, TEXT, TEXT, TEXT)
+  TO anon, authenticated;
+
+-- Valida a chave e vincula o HWID na primeira ativação. SECURITY DEFINER para
+-- que a anon key consiga operar sem SELECT/INSERT/UPDATE na tabela licenses.
+-- Retorna JSONB (o PostgREST entrega como objeto para o app).
+CREATE OR REPLACE FUNCTION public.verify_and_activate_license(
+  p_license_key TEXT,
+  p_hwid        TEXT
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_key     TEXT := pg_catalog.upper(pg_catalog.btrim(COALESCE(p_license_key, '')));
+  v_hwid    TEXT := pg_catalog.btrim(COALESCE(p_hwid, ''));
+  v_license public.licenses%ROWTYPE;
+BEGIN
+  IF v_key = '' THEN
+    RETURN pg_catalog.jsonb_build_object(
+      'valid', false,
+      'reason', 'invalid_key',
+      'message', 'Informe uma chave de licença.'
+    );
+  END IF;
+
+  IF v_hwid = '' THEN
+    RETURN pg_catalog.jsonb_build_object(
+      'valid', false,
+      'reason', 'invalid_hwid',
+      'message', 'Não foi possível identificar este computador.'
+    );
+  END IF;
+
+  SELECT * INTO v_license
+    FROM public.licenses
+   WHERE license_key = v_key;
+
+  IF NOT FOUND THEN
+    RETURN pg_catalog.jsonb_build_object(
+      'valid', false,
+      'reason', 'not_found',
+      'message', 'Chave de licença não encontrada.'
+    );
+  END IF;
+
+  IF v_license.status = 'revoked' THEN
+    RETURN pg_catalog.jsonb_build_object(
+      'valid', false,
+      'reason', 'revoked',
+      'message', 'Esta licença foi revogada. Fale com o suporte.'
+    );
+  END IF;
+
+  IF v_license.status = 'expired'
+     OR (v_license.expires_at IS NOT NULL AND v_license.expires_at <= pg_catalog.now()) THEN
+    RETURN pg_catalog.jsonb_build_object(
+      'valid', false,
+      'reason', 'expired',
+      'message', 'Esta licença expirou. Renove para continuar usando.'
+    );
+  END IF;
+
+  IF v_license.status <> 'active' THEN
+    RETURN pg_catalog.jsonb_build_object(
+      'valid', false,
+      'reason', 'inactive',
+      'message', 'Esta licença não está ativa.'
+    );
+  END IF;
+
+  -- Primeira ativação: vincula a chave ao computador atual.
+  -- O UPDATE condicional (hwid IS NULL) evita que duas máquinas ativem a
+  -- mesma chave ao mesmo tempo: a segunda perde a corrida e cai no mismatch.
+  IF v_license.hwid IS NULL THEN
+    UPDATE public.licenses
+       SET hwid         = v_hwid,
+           activated_at = pg_catalog.now()
+     WHERE license_key = v_key
+       AND hwid IS NULL;
+
+    IF FOUND THEN
+      RETURN pg_catalog.jsonb_build_object(
+        'valid', true,
+        'reason', 'activated',
+        'message', 'Licença ativada com sucesso!',
+        'expires_at', v_license.expires_at
+      );
+    END IF;
+
+    SELECT * INTO v_license
+      FROM public.licenses
+     WHERE license_key = v_key;
+
+    IF v_license.hwid = v_hwid THEN
+      RETURN pg_catalog.jsonb_build_object(
+        'valid', true,
+        'reason', 'active',
+        'message', 'Licença válida.',
+        'expires_at', v_license.expires_at
+      );
+    END IF;
+  END IF;
+
+  IF v_license.hwid = v_hwid THEN
+    RETURN pg_catalog.jsonb_build_object(
+      'valid', true,
+      'reason', 'active',
+      'message', 'Licença válida.',
+      'expires_at', v_license.expires_at
+    );
+  END IF;
+
+  RETURN pg_catalog.jsonb_build_object(
+    'valid', false,
+    'reason', 'hwid_mismatch',
+    'message', 'Esta chave já está vinculada a outro computador.'
+  );
+END;
+$$;
+
+-- Executa apenas a função; nunca a tabela.
+REVOKE ALL ON FUNCTION public.verify_and_activate_license(TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.verify_and_activate_license(TEXT, TEXT)
   TO anon, authenticated;
 
 -- Atualiza updated_at automaticamente
@@ -329,3 +473,7 @@ CREATE INDEX IF NOT EXISTS queue_status_idx
 
 CREATE INDEX IF NOT EXISTS queue_created_at_idx
   ON public.queue (created_at);
+
+-- Suporte: localizar a licença pelo HWID informado pelo cliente.
+CREATE INDEX IF NOT EXISTS licenses_hwid_idx
+  ON public.licenses (hwid);

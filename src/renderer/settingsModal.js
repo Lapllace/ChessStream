@@ -1,6 +1,63 @@
 const settingsApi = window.chessHub.settings;
 let isTwitchLoggingIn = false;
 
+/**
+ * Badge discreto de licença no cabeçalho das Configurações.
+ * Recebe um resultado já carregado (evento `license:status`) ou busca o
+ * estado em memória no main process — nunca dispara uma nova consulta online.
+ */
+async function updateLicenseBadge(status) {
+  const badge = $('license-status-badge');
+  if (!badge) return;
+
+  let current = status;
+  if (!current) {
+    try {
+      current = await window.chessHub.license.status();
+    } catch (error) {
+      console.warn('[Licença] Não foi possível ler o status:', error);
+      return;
+    }
+  }
+  if (!current) return;
+
+  const reason = current.reason || '';
+  let label = t('licenseStatusInvalid', 'Inativa');
+  let tone = 'badge-red';
+
+  if (current.valid && reason === 'offline_grace') {
+    label = t('licenseStatusOffline', 'Offline');
+    tone = 'badge-vip';
+  } else if (current.valid) {
+    label = t('licenseStatusValid', 'Ativa');
+    tone = 'badge-green';
+  } else if (reason === 'needs_check') {
+    label = t('licenseStatusChecking', 'Verificando');
+    tone = 'badge-vip';
+  }
+
+  badge.textContent = label;
+  badge.className = `badge ${tone}`;
+
+  const details = [];
+  if (current.keyMasked) details.push(current.keyMasked);
+  if (current.hwidShort) {
+    details.push(`${t('licenseHwidLabel', 'ID desta máquina')}: ${current.hwidShort}`);
+  }
+  if (current.expiresAt) {
+    const expires = new Date(current.expiresAt);
+    if (!Number.isNaN(expires.getTime())) {
+      details.push(`${t('licenseExpiresAt', 'Expira em')}: ${expires.toLocaleDateString()}`);
+    }
+  } else if (current.valid) {
+    details.push(t('licenseLifetime', 'Licença vitalícia'));
+  }
+  const description = typeof licenseReasonLabel === 'function'
+    ? licenseReasonLabel(current)
+    : current.message;
+  badge.title = [description, ...details].filter(Boolean).join('\n');
+}
+
 async function openSettings() {
   const config = await settingsApi.get();
   const fields = {
@@ -35,6 +92,7 @@ async function openSettings() {
   twitchStatus.className = config.hasTwitchToken ? 'badge badge-green' : 'badge badge-red';
   $('settings-modal').classList.add('open');
   document.querySelector('.tab-btn')?.click();
+  updateLicenseBadge();
 
   const youtubeStatus = $('youtube-status');
   youtubeStatus.textContent = config.youtubeConnected

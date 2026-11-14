@@ -23,6 +23,7 @@ const SECRET_KEYS = [
   'mpAccessToken',
   'livepixClientSecret',
   'livepixWebhookSecret',
+  'licenseKey',
 ];
 
 const schema = {
@@ -48,6 +49,12 @@ const schema = {
   livepixClientSecret:   { type: 'string', default: '' },
   livepixWebhookSecret:  { type: 'string', default: '' },
   livepixWebhookBaseUrl: { type: 'string', default: DEFAULT_WEBHOOK_BASE_URL },
+  // ── Licença comercial ───────────────────────────────────────────
+  licenseKey:          { type: 'string', default: '' },
+  licenseHwid:         { type: 'string', default: '' },
+  licenseStatus:       { type: 'string', default: '' },
+  licenseLastValidAt:  { type: 'string', default: '' },
+  licenseExpiresAt:    { type: 'string', default: '' },
 };
 
 const store = new Store({
@@ -120,15 +127,10 @@ function getSettings() {
  */
 function getPublicSettings() {
   const settings = getSettings();
-  const {
-    twitchOAuthToken,
-    youtubeAccessToken,
-    youtubeRefreshToken,
-    tiktokSessionId,
-    livepixClientSecret,
-    livepixWebhookSecret,
-    ...publicSettings
-  } = settings;
+  // Remove dinamicamente todos os segredos: evita que uma chave nova em
+  // SECRET_KEYS vaze para o renderer por esquecimento no destructuring.
+  const publicSettings = { ...settings };
+  for (const key of SECRET_KEYS) delete publicSettings[key];
 
   const streamerId = String(settings.streamerId || '');
   const webhookUrl = streamerId && settings.livepixWebhookSecret
@@ -141,13 +143,14 @@ function getPublicSettings() {
 
   return {
     ...publicSettings,
-    hasTwitchToken: Boolean(twitchOAuthToken),
-    youtubeConnected: Boolean(youtubeAccessToken),
+    hasTwitchToken: Boolean(settings.twitchOAuthToken),
+    youtubeConnected: Boolean(settings.youtubeAccessToken),
     livepixConfigured: Boolean(
       String(settings.livepixClientId || '').trim()
       && String(settings.livepixClientSecret || '').trim()
     ),
     livepixWebhookUrl: webhookUrl,
+    hasLicenseKey: Boolean(String(settings.licenseKey || '').trim()),
   };
 }
 

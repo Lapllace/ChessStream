@@ -23,6 +23,15 @@ contextBridge.exposeInMainWorld('chessHub', {
     tiktokLogin: (username) => ipcRenderer.invoke('tiktok:login', username),
   },
 
+  // Licença comercial (HWID + chave)
+  license: {
+    check:    (options)   => ipcRenderer.invoke('license:check', options),
+    activate: (key)       => ipcRenderer.invoke('license:activate', key),
+    getHwid:  ()          => ipcRenderer.invoke('license:get-hwid'),
+    status:   ()          => ipcRenderer.invoke('license:status'),
+    purchase: ()          => ipcRenderer.invoke('license:purchase'),
+  },
+
   // Eventos do main → renderer
   on: (event, callback) => {
     ipcRenderer.on(event, (_, data) => callback(data));

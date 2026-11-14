@@ -11,6 +11,49 @@
 <body>
   <canvas id="particle-canvas"></canvas>
 
+  <!-- Bloqueio comercial: cobre toda a interface até a licença ser validada -->
+  <div class="license-modal" id="licenseModal" hidden>
+    <div class="license-dialog" role="dialog" aria-modal="true" aria-labelledby="license-title">
+      <div class="license-brand">♟ CHESSSTREAM HUB</div>
+      <h2 id="license-title" data-i18n="licenseTitle">Ativação de licença</h2>
+      <p class="license-subtitle" data-i18n="licenseSubtitle">
+        Este aplicativo precisa de uma licença válida para iniciar os bots.
+      </p>
+
+      <label class="license-field" for="license-key-input">
+        <span data-i18n="licenseKeyLabel">Chave de licença</span>
+        <input id="license-key-input" type="text" maxlength="64" autocomplete="off"
+          spellcheck="false" data-i18n-placeholder="licenseKeyPlaceholder"
+          placeholder="CHESS-XXXX-XXXX-XXXX" />
+      </label>
+
+      <button class="btn btn-primary license-submit" id="btn-activate-license" type="button"
+        data-i18n="licenseActivate">Ativar licença</button>
+
+      <p class="license-message" id="license-message" role="status" aria-live="polite"></p>
+      <button class="license-link license-retry" id="btn-retry-license" type="button"
+        data-i18n="licenseRetry">Verificar novamente</button>
+
+      <div class="license-hwid-box">
+        <div class="license-hwid-head">
+          <span data-i18n="licenseHwidLabel">ID desta máquina</span>
+          <button class="license-link" id="btn-copy-hwid" type="button"
+            data-i18n="licenseCopyHwid">Copiar</button>
+        </div>
+        <code id="license-hwid">—</code>
+        <p class="license-hwid-hint" data-i18n="licenseHwidHint">
+          Envie este código ao suporte se precisar trocar de computador.
+        </p>
+      </div>
+
+      <button class="license-buy" id="btn-buy-license" type="button"
+        data-i18n="licenseBuy">Adquirir uma licença</button>
+      <p class="license-support" data-i18n="licenseSupport">
+        Sem internet? A licença continua válida por até 72h após a última validação.
+      </p>
+    </div>
+  </div>
+
   <div id="intro-overlay" aria-hidden="true">
     <div class="shockwave" id="shockwave"></div>
     <div class="brilliant-badge" id="brilliant-badge">
@@ -99,6 +142,10 @@
     <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="settings-header">
         <h2 id="settings-title" data-i18n="settingsTitle">Configurações</h2>
+        <div class="settings-license">
+          <span data-i18n="licenseStatusLabel">Licença</span>
+          <strong id="license-status-badge" class="badge badge-red" title="">—</strong>
+        </div>
         <button class="btn-icon" id="btn-close-settings" aria-label="Fechar" type="button">✕</button>
       </div>
       <div class="settings-tabs">
@@ -235,6 +282,7 @@
 
   <script src="i18n/translations.js"></script>
   <script src="app.js"></script>
+  <script src="licenseModal.js"></script>
   <script src="settingsModal.js"></script>
   <script src="historyModal.js"></script>
 </body>

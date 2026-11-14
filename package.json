@@ -3,17 +3,24 @@
   "version": "1.0.0",
   "description": "Bot de gerenciamento de fila para streamers de xadrez",
   "main": "src/main/index.js",
+  "author": "Tenebris",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "homepage": "https://github.com/Lapllace/chessstream-hub",
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
-    "build": "electron-builder",
-    "build:electron": "electron-builder"
+    "icon": "node scripts/generate-icon.js",
+    "build": "electron-builder --win",
+    "build:electron": "electron-builder",
+    "dist": "electron-builder --win",
+    "pack": "electron-builder --dir"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
     "axios": "^1.6.0",
     "dotenv": "^16.6.1",
     "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.11",
     "googleapis": "^178.0.0",
     "tiktok-live-connector": "^2.5.0",
     "tmi.js": "^1.8.5",
@@ -24,18 +31,52 @@
     "electron-builder": "^26.18.0"
   },
   "build": {
-    "appId": "com.chessstream.hub",
+    "appId": "com.tenebris.chessstreamhub",
     "productName": "ChessStream Hub",
+    "copyright": "Copyright © 2026 Tenebris",
     "files": [
       "src/**/*",
       "assets/client_secret_532294206568-hhdb5lhl6gsr24lfblngdcv8e18uj358.apps.googleusercontent.com.json"
     ],
+    "extraResources": [
+      {
+        "from": "LICENSE.txt",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "docs/PRIVACY.md",
+        "to": "PRIVACY.md"
+      }
+    ],
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "signtoolOptions": {
+        "publisherName": "Tenebris"
+      }
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ChessStream Hub",
+      "license": "LICENSE.txt"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Lapllace",
+        "repo": "chessstream-hub",
+        "releaseType": "release"
+      }
+    ],
     "mac": {
       "target": "dmg"
     },

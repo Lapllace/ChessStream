@@ -15,6 +15,14 @@ const {
   hasLivepixCredentials,
   syncStreamerConfig,
 } = require('./livepixConfig');
+const {
+  LICENSE_PURCHASE_URL,
+  checkLicense,
+  activateLicense,
+  getHardwareId,
+  getShortHwid,
+  getLocalLicenseStatus,
+} = require('./licenseManager');
 
 // Servidor do overlay OBS
 let overlayServer = null;
@@ -94,6 +102,9 @@ let twitchBot;
 let tiktokBot;
 let youtubeBot;
 let supabaseListener;
+let licenseState = null;
+let licenseCheckPromise = null;
+let servicesStarted = false;
 
 const YOUTUBE_SCOPES = [
   'https://www.googleapis.com/auth/youtube.readonly',
@@ -301,6 +312,46 @@ function createWindow() {
   }
 }
 
+// ── Auto-updater ──────────────────────────────────────────────────────────────
+/**
+ * Verifica atualizações via GitHub Releases. Só roda em builds empacotados:
+ * em `npm start` não existe `app-update.yml` e a checagem geraria erro.
+ * O módulo é carregado sob demanda para não pesar no boot de desenvolvimento.
+ */
+function setupAutoUpdater() {
+  if (!app.isPackaged) {
+    console.log('[Updater] Modo desenvolvimento — verificação de atualizações desativada.');
+    return;
+  }
+
+  try {
+    const { autoUpdater } = require('electron-updater');
+
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.logger = { info() {}, warn() {}, error() {}, debug() {} }; // silencia o log interno
+
+    autoUpdater.on('update-available', (info) => {
+      console.log(`[Updater] Atualização disponível: v${info.version}`);
+    });
+    autoUpdater.on('update-not-available', () => {
+      console.log('[Updater] Aplicativo já está na versão mais recente.');
+    });
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log(`[Updater] v${info.version} baixada — será instalada ao fechar o app.`);
+    });
+    autoUpdater.on('error', (error) => {
+      console.warn('[Updater] Erro na verificação:', error?.message || error);
+    });
+
+    autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+      console.warn('[Updater] Não foi possível verificar atualizações:', error?.message || error);
+    });
+  } catch (error) {
+    console.warn('[Updater] Módulo indisponível:', error?.message || error);
+  }
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   // safeStorage só existe depois do app pronto, por isso applyToEnv() (que
@@ -311,14 +362,65 @@ app.whenReady().then(async () => {
   chessMonitor  = new ChessMonitor(queueManager, sendToRenderer);
   createWindow();
   startOverlayServer();
+  setupAutoUpdater();
 
-  // Inicia monitoramento do Chess.com (polling a cada 20s)
-  chessMonitor.start();
-
-  await restartBots();
+  // A licença é verificada ANTES de qualquer bot/monitor. A janela já está
+  // aberta para o modal de ativação aparecer imediatamente.
+  const license = await evaluateLicense();
+  if (license.valid) {
+    await ensureServicesStarted();
+  } else {
+    console.warn('[Licença] App bloqueado:', license.reason, '-', license.message);
+  }
 }).catch((error) => {
   console.error('[App] Erro ao iniciar o Electron:', error);
 });
+
+/**
+ * Resolve a licença uma única vez por boot e compartilha a promise com os
+ * handlers IPC (o renderer pede a mesma verificação logo que carrega).
+ */
+async function evaluateLicense({ force = false } = {}) {
+  if (!force && licenseState) return licenseState;
+
+  if (!licenseCheckPromise) {
+    licenseCheckPromise = checkLicense()
+      .then((result) => {
+        licenseState = result;
+        sendToRenderer('license:status', result);
+        return result;
+      })
+      .catch((error) => {
+        const failure = {
+          valid: false,
+          reason: 'check_failed',
+          message: error?.message || 'Não foi possível verificar a licença.',
+        };
+        licenseState = failure;
+        sendToRenderer('license:status', failure);
+        return failure;
+      })
+      .finally(() => {
+        licenseCheckPromise = null;
+      });
+  }
+
+  return licenseCheckPromise;
+}
+
+/** Inicia bots/monitor apenas quando a licença já foi validada. */
+async function ensureServicesStarted() {
+  if (servicesStarted) return;
+
+  servicesStarted = true;
+  try {
+    await restartBots();
+  } catch (error) {
+    servicesStarted = false;
+    console.error('[Licença] Falha ao iniciar os serviços:', error?.message || error);
+    throw error;
+  }
+}
 
 // Serializa reinícios. Chamadas concorrentes (salvar config enquanto um login
 // termina, por exemplo) criavam dois canais Realtime com o mesmo tópico e
@@ -332,6 +434,13 @@ function restartBots() {
 }
 
 async function restartBotsInternal() {
+  // Sem licença válida nenhum bot conecta (nem por settings:save/login).
+  if (!licenseState?.valid) {
+    console.warn('[Licença] Bots não iniciados: licença inválida.');
+    sendToRenderer('bots:restarted', { ok: false, reason: 'license_required' });
+    return;
+  }
+
   await twitchBot?.disconnect();
   tiktokBot?.stopMonitoring();
   youtubeBot?.disconnect();
@@ -637,6 +746,52 @@ ipcMain.handle('settings:save', async (_, partial) => {
 
   await restartBots();
   return { ok: true, livepix };
+});
+
+// ── IPC: licença comercial ───────────────────────────────────────────────────
+ipcMain.handle('license:check', async (_, options) => {
+  // Sem `force`, reaproveita o estado do boot. O botão "Verificar novamente"
+  // do modal usa force=true para tentar de novo após erro de rede.
+  const result = await evaluateLicense({ force: Boolean(options?.force) });
+  if (result.valid) {
+    await ensureServicesStarted().catch((error) => {
+      console.error('[Licença] Serviços não iniciaram:', error?.message || error);
+    });
+  }
+  return result;
+});
+
+ipcMain.handle('license:activate', async (_, licenseKey) => {
+  const result = await activateLicense(licenseKey);
+  licenseState = result;
+  sendToRenderer('license:status', result);
+
+  // Não aguarda os bots: o renderer destrava a interface imediatamente e o
+  // restart roda em segundo plano (o modal não fica preso em "Ativando...").
+  if (result.valid) {
+    ensureServicesStarted().catch((error) => {
+      console.error('[Licença] Serviços não iniciaram após ativação:', error?.message || error);
+    });
+  }
+
+  return result;
+});
+
+ipcMain.handle('license:get-hwid', () => {
+  const hwid = getHardwareId();
+  return { hwid, short: getShortHwid(hwid) };
+});
+
+// Indicador local (sem rede) para a aba de Configurações.
+ipcMain.handle('license:status', () => licenseState || getLocalLicenseStatus());
+
+ipcMain.handle('license:purchase', async () => {
+  try {
+    await shell.openExternal(LICENSE_PURCHASE_URL);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
 });
 
 /**

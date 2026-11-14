@@ -1,0 +1,224 @@
+TERMOS DE USO E LICENÇA DE SOFTWARE
+ChessStream Hub
+
+Versão 1.0 — Última atualização: 13 de novembro de 2026
+
+Copyright © 2026 Tenebris. Todos os direitos reservados.
+
+LEIA ESTE DOCUMENTO COM ATENÇÃO ANTES DE INSTALAR OU UTILIZAR O SOFTWARE.
+Ao instalar, copiar ou utilizar o ChessStream Hub, você declara que leu,
+compreendeu e concorda integralmente com estes Termos de Uso e Licença de
+Software ("Termos"). Caso não concorde, não instale e não utilize o software.
+
+──────────────────────────────────────────────────────────────────────────────
+1. DEFINIÇÕES
+──────────────────────────────────────────────────────────────────────────────
+1.1. "Software": o aplicativo ChessStream Hub, incluindo executáveis, código,
+     interface, atualizações, documentação e recursos associados.
+1.2. "Licenciante": Tenebris, titular dos direitos de distribuição comercial do
+     Software.
+1.3. "Licenciado" ou "Você": pessoa física ou jurídica que adquiriu licença de
+     uso válida e ativada do Software.
+1.4. "Streamer": o Licenciado que utiliza o Software para gerenciar filas,
+     partidas e integrações durante transmissões ao vivo.
+1.5. "Espectador": usuário das plataformas de transmissão (Twitch, TikTok,
+     YouTube ou similares) que interage com o Streamer, incluindo o envio de
+     valores ou participação em filas e partidas.
+
+──────────────────────────────────────────────────────────────────────────────
+2. CONCESSÃO DE LICENÇA
+──────────────────────────────────────────────────────────────────────────────
+2.1. O Licenciante concede ao Licenciado uma licença limitada, não exclusiva,
+     intransferível, não sublicenciável e revogável de uso do Software, pelo
+     prazo de vigência da licença adquirida, exclusivamente para fins
+     profissionais ou pessoais de gerenciamento de filas e transmissões.
+2.2. A licença é vinculada ao dispositivo e/ou ao usuário identificado no
+     momento da ativação, conforme os mecanismos técnicos de validação do
+     Software.
+2.3. O número de instalações, dispositivos e usuários simultâneos permitidos é
+     definido no ato da compra ou no plano contratado.
+2.4. A licença não concede qualquer direito sobre marcas, logotipos, código-
+     fonte, a menos que expressamente indicado, nem sobre os serviços de
+     terceiros integrados.
+
+──────────────────────────────────────────────────────────────────────────────
+3. RESTRIÇÕES DE USO
+──────────────────────────────────────────────────────────────────────────────
+3.1. É vedado ao Licenciado, no todo ou em parte:
+     (a) copiar, distribuir, vender, alugar, sublicenciar ou ceder o Software ou
+         a licença a terceiros sem autorização escrita do Licenciante;
+     (b) realizar engenharia reversa, descompilar, desmontar ou tentar obter o
+         código-fonte, exceto na extensão permitida por lei aplicável;
+     (c) remover, ocultar ou alterar avisos de direitos autorais, marcas ou
+         mecanismos de proteção e validação de licença;
+     (d) contornar, burlar ou manipular o sistema de licenças, o identificador
+         de hardware (HWID) ou qualquer mecanismo de autenticação;
+     (e) utilizar o Software para atividades ilícitas, fraudulentas, abusivas,
+         de assédio, discriminação ou que violem os termos das plataformas
+         integradas;
+     (f) utilizar o Software para manipular resultados de partidas, simular
+         participação de espectadores ou praticar qualquer forma de fraude.
+3.2. O descumprimento de qualquer restrição autoriza o Licenciante a revogar a
+     licença, sem prejuízo das medidas legais cabíveis.
+
+──────────────────────────────────────────────────────────────────────────────
+4. ATIVAÇÃO, VALIDAÇÃO E IDENTIFICADOR DE HARDWARE (HWID)
+──────────────────────────────────────────────────────────────────────────────
+4.1. O Software pode exigir ativação online e validação periódica da licença.
+4.2. Para fins exclusivos de validação de licença e prevenção de uso não
+     autorizado, o Software coleta e transmite um identificador de hardware
+     (HWID) derivado de características do dispositivo.
+4.3. O HWID não é utilizado para rastreamento publicitário, perfilamento
+     comportamental ou compartilhamento com terceiros estranhos à operação do
+     Software.
+4.4. A ausência de conexão com os servidores de licença pode impedir o uso
+     total ou parcial do Software, conforme os prazos de tolerância offline
+     definidos na documentação técnica.
+4.5. Os dados tratados na ativação são regidos pela Política de Privacidade
+     disponível em docs/PRIVACY.md, parte integrante destes Termos.
+
+──────────────────────────────────────────────────────────────────────────────
+5. SERVIÇOS E INTEGRAÇÕES DE TERCEIROS
+──────────────────────────────────────────────────────────────────────────────
+5.1. O Software integra-se a serviços de terceiros, incluindo, mas não se
+     limitando a: Twitch, TikTok, YouTube, Google APIs, Supabase, LivePix e
+     Mercado Pago.
+5.2. O Licenciado é o único responsável por possuir contas válidas, cumprir os
+     termos desses serviços e manter suas credenciais, chaves de API, tokens e
+     certificados em segurança.
+5.3. O Licenciante não controla, não opera e não se responsabiliza por
+     disponibilidade, mudanças de política, bloqueios, tarifas, prazos de
+     repasse ou falhas dos serviços de terceiros.
+5.4. A integração com plataformas de transmissão e de pagamento pode ser
+     descontinuada por decisão dos respectivos provedores, sem que isso gere
+     direito a reembolso, salvo disposição legal obrigatória.
+
+──────────────────────────────────────────────────────────────────────────────
+6. TRANSAÇÕES FINANCEIRAS — LIVEPIX E MERCADO PAGO
+──────────────────────────────────────────────────────────────────────────────
+6.1. O Software é uma ferramenta de gestão de filas, partidas e integrações.
+     O Software NÃO é instituição financeira, NÃO é intermediador de pagamentos,
+     NÃO custodia valores e NÃO processa, autoriza, liquida ou garante
+     transações financeiras.
+6.2. Toda e qualquer transação financeira realizada por meio de LivePix,
+     Mercado Pago ou de qualquer outro meio de pagamento ocorre DIRETAMENTE
+     entre o Streamer (Licenciado) e seus Espectadores, sendo o Streamer o
+     único responsável pela cobrança, recebimento, repasse, emissão de
+     comprovantes e cumprimento das obrigações fiscais, consumeristas e
+     regulatórias aplicáveis.
+6.3. O Licenciante e o Software não participam da relação jurídica financeira
+     entre Streamer e Espectador e, portanto, NÃO respondem por estornos
+     (chargebacks), reversões, cancelamentos, pagamentos não reconhecidos,
+     fraudes, inadimplência, retenções, bloqueios de conta, taxas ou prejuízos
+     decorrentes dessas transações.
+6.4. Em caso de estorno, contestação ou reclamação do Espectador, a tratativa
+     é de responsabilidade exclusiva do Streamer, inclusive perante LivePix,
+     Mercado Pago, adquirentes, emissores de cartão e órgãos de defesa do
+     consumidor.
+6.5. O Licenciado isenta o Licenciante de qualquer reclamação, indenização ou
+     responsabilização relacionada a transações financeiras realizadas com seus
+     Espectadores, na máxima extensão permitida pela lei aplicável.
+6.6. O Licenciado compromete-se a deixar claro aos seus Espectadores que
+     eventuais valores cobrados são de responsabilidade do Streamer e não do
+     Software, observando as políticas das plataformas utilizadas.
+
+──────────────────────────────────────────────────────────────────────────────
+7. PRIVACIDADE E PROTEÇÃO DE DADOS
+──────────────────────────────────────────────────────────────────────────────
+7.1. O tratamento de dados pessoais observa a Política de Privacidade
+     (docs/PRIVACY.md) e a legislação aplicável, incluindo a Lei Geral de
+     Proteção de Dados (Lei nº 13.709/2018 — LGPD).
+7.2. Credenciais e tokens sensíveis armazenados localmente são protegidos por
+     criptografia do sistema operacional por meio da API safeStorage do
+     Electron, quando disponível.
+7.3. O Licenciado é o controlador dos dados de seus Espectadores que inserir ou
+     coletar por meio do Software e responde pelas bases legais, avisos e
+     direitos dos titulares.
+
+──────────────────────────────────────────────────────────────────────────────
+8. ATUALIZAÇÕES E SUPORTE
+──────────────────────────────────────────────────────────────────────────────
+8.1. O Software pode verificar automaticamente a existência de atualizações
+     publicadas pelo Licenciante e baixá-las, aplicando-as quando o aplicativo
+     for encerrado.
+8.2. Atualizações podem alterar, adicionar ou remover funcionalidades. O uso de
+     versões desatualizadas pode ser limitado por questões de segurança,
+     compatibilidade ou validação de licença.
+8.3. O suporte técnico, quando contratado, é prestado nos canais e prazos
+     informados no ato da compra, sem garantia de solução para falhas de
+     terceiros.
+
+──────────────────────────────────────────────────────────────────────────────
+9. ISENÇÃO DE GARANTIAS
+──────────────────────────────────────────────────────────────────────────────
+9.1. O SOFTWARE É FORNECIDO "NO ESTADO EM QUE SE ENCONTRA" ("AS IS") E
+     "CONFORME DISPONÍVEL" ("AS AVAILABLE"), SEM GARANTIAS DE QUALQUER NATUREZA,
+     EXPRESSAS OU IMPLÍCITAS, INCLUINDO GARANTIAS DE COMERCIALIZAÇÃO,
+     ADEQUAÇÃO A UM PROPÓSITO ESPECÍFICO, NÃO VIOLAÇÃO, DISPONIBILIDADE
+     ININTERRUPTA OU AUSÊNCIA DE ERROS.
+9.2. O Licenciante não garante que o Software atenderá a todas as expectativas
+     do Licenciado, que funcionará com todas as versões de sistemas,
+     plataformas ou dispositivos, nem que erros serão corrigidos.
+9.3. O Licenciado é responsável por manter backups de seus dados e por testar
+     atualizações antes de utilizá-las em transmissões ao vivo.
+
+──────────────────────────────────────────────────────────────────────────────
+10. LIMITAÇÃO DE RESPONSABILIDADE
+──────────────────────────────────────────────────────────────────────────────
+10.1. Na máxima extensão permitida pela lei aplicável, o Licenciante não
+      responderá por danos indiretos, incidentais, especiais, punitivos ou
+      consequenciais, incluindo lucros cessantes, perda de receita, perda de
+      audiência, perda de dados, danos à imagem ou interrupção de transmissões,
+      ainda que advertido da possibilidade de tais danos.
+10.2. A responsabilidade total do Licenciante, por qualquer causa, limitar-se-á
+      ao valor efetivamente pago pelo Licenciado pela licença do Software nos
+      doze meses anteriores ao evento, ou, se menor, ao valor da licença.
+10.3. As limitações acima não afastam responsabilidades que não possam ser
+      excluídas ou limitadas por lei, especialmente em relações de consumo,
+      quando aplicável.
+
+──────────────────────────────────────────────────────────────────────────────
+11. VIGÊNCIA E RESCISÃO
+──────────────────────────────────────────────────────────────────────────────
+11.1. Estes Termos vigem enquanto a licença estiver ativa.
+11.2. O Licenciante pode revogar a licença, mediante notificação, em caso de
+      violação destes Termos, uso fraudulento, tentativa de burla de proteções
+      ou inadimplemento.
+11.3. Encerrada a licença, o Licenciado deve cessar o uso e desinstalar o
+      Software. As seções 5, 6, 7, 9, 10, 12 e 13 sobrevivem à rescisão.
+
+──────────────────────────────────────────────────────────────────────────────
+12. PROPRIEDADE INTELECTUAL
+──────────────────────────────────────────────────────────────────────────────
+12.1. O Software, sua arquitetura, código, interface, marca "ChessStream Hub",
+      textos e materiais são protegidos por direitos autorais, marcas e demais
+      leis de propriedade intelectual.
+12.2. Nenhuma disposição destes Termos transfere ao Licenciado a titularidade
+      sobre o Software, mas apenas o direito limitado de uso descrito na
+      Seção 2.
+12.3. Marcas de terceiros (Twitch, TikTok, YouTube, LivePix, Mercado Pago,
+      Google, Supabase) pertencem aos seus respectivos titulares e são
+      mencionadas apenas para fins de identificação das integrações.
+
+──────────────────────────────────────────────────────────────────────────────
+13. DISPOSIÇÕES GERAIS
+──────────────────────────────────────────────────────────────────────────────
+13.1. Estes Termos são regidos pelas leis da República Federativa do Brasil.
+13.2. Eventuais controvérsias serão submetidas ao foro do domicílio do
+      Licenciante, salvo disposição legal que assegure foro diverso ao
+      consumidor.
+13.3. A tolerância quanto ao descumprimento de qualquer cláusula não constitui
+      renúncia ao direito de exigir seu cumprimento posteriormente.
+13.4. Se qualquer disposição for considerada inválida, as demais permanecem em
+      pleno vigor, interpretando-se a cláusula inválida de modo a preservar sua
+      intenção econômica.
+13.5. Estes Termos podem ser atualizados pelo Licenciante. A versão vigente será
+      disponibilizada junto ao Software e/ou em seus canais oficiais. O uso
+      continuado após a atualização implica aceitação das novas condições.
+13.6. Dúvidas sobre licenciamento, ativação ou suporte devem ser encaminhadas
+      aos canais oficiais de atendimento do Licenciante.
+
+──────────────────────────────────────────────────────────────────────────────
+Contato: Tenebris — canais oficiais de suporte informados na compra.
+ChessStream Hub © 2026 Tenebris. Todos os direitos reservados.
+──────────────────────────────────────────────────────────────────────────────
