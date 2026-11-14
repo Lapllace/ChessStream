@@ -1,0 +1,224 @@
+  <!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChessStream Hub — Ativação</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #09071a;
+      color: #f0eeff;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      background: #0f0b1f;
+      border: 2px solid #2a1f4e;
+      outline: 1px solid rgba(157,78,221,0.3);
+      box-shadow: 0 0 40px rgba(157,78,221,0.2);
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 440px;
+      text-align: center;
+    }
+    .logo {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 11px;
+      color: #fff;
+      text-shadow: 2px 2px 0 #9d4edd, 4px 4px 0 #00e5c4;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #9b92c8;
+      margin-bottom: 32px;
+      letter-spacing: 0.05em;
+    }
+    .reason-box {
+      background: rgba(248,113,113,0.08);
+      border: 1px solid rgba(248,113,113,0.3);
+      color: #f87171;
+      font-size: 11px;
+      padding: 10px 14px;
+      margin-bottom: 24px;
+      display: none;
+      text-align: left;
+      line-height: 1.6;
+    }
+    .reason-box.visible { display: block; }
+    label {
+      display: block;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9b92c8;
+      margin-bottom: 8px;
+    }
+    input {
+      width: 100%;
+      background: #160f2e;
+      border: 1px solid #2a1f4e;
+      color: #f0eeff;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 11px;
+      padding: 12px 14px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      outline: none;
+      transition: border-color 150ms;
+      margin-bottom: 20px;
+    }
+    input:focus { border-color: #00e5c4; box-shadow: 0 0 0 2px rgba(0,229,196,0.1); }
+    input::placeholder { color: #3d3060; }
+    button {
+      width: 100%;
+      background: #00e5c4;
+      color: #09071a;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 10px;
+      padding: 14px;
+      border: none;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: all 100ms;
+      box-shadow: 3px 3px 0 rgba(0,0,0,0.5);
+    }
+    button:hover { transform: translate(-1px,-1px); box-shadow: 4px 4px 0 rgba(0,0,0,0.5); }
+    button:active { transform: translate(1px,1px); box-shadow: 1px 1px 0 rgba(0,0,0,0.5); }
+    button:disabled { background: #2a1f4e; color: #5c5280; cursor: not-allowed;
+      transform: none; box-shadow: none; }
+    .status {
+      margin-top: 16px;
+      font-size: 12px;
+      min-height: 20px;
+      line-height: 1.5;
+    }
+    .status.error   { color: #f87171; }
+    .status.success { color: #00e5c4; }
+    .status.loading { color: #9b92c8; }
+    .footer {
+      margin-top: 28px;
+      font-size: 10px;
+      color: #3d3060;
+      line-height: 1.6;
+    }
+    .footer a { color: #9d4edd; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">♟ ChessStream Hub</div>
+    <div class="subtitle">Insira sua chave de ativação</div>
+
+    <div class="reason-box" id="reasonBox"></div>
+
+    <label for="keyInput">Chave de Licença</label>
+    <input
+      type="text"
+      id="keyInput"
+      placeholder="CSH-XXXX-XXXX-XXXX"
+      maxlength="19"
+      autocomplete="off"
+      spellcheck="false"
+    >
+
+    <button id="btnActivate">Ativar</button>
+    <div class="status" id="status"></div>
+
+    <div class="footer">
+      Não tem uma chave? Entre em contato.<br>
+      <a href="https://discord.com/users/1401221715866157149" target="_blank" id="linkContact">Falar no Discord</a>
+    </div>
+  </div>
+
+  <script>
+    const keyInput    = document.getElementById('keyInput');
+    const btnActivate = document.getElementById('btnActivate');
+    const statusEl    = document.getElementById('status');
+    const reasonBox   = document.getElementById('reasonBox');
+
+    // Lê o motivo da URL (?reason=expired etc.)
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get('reason');
+    const reasonMessages = {
+      expired:         '⏱ Sua licença expirou. Renove para continuar.',
+      expired_offline: '⚠ Sem conexão. Sua licença expirou e não pode ser verificada.',
+      invalid:         '❌ Licença inválida ou revogada.',
+      revoked:         '❌ Licença revogada. Entre em contato para regularizar.',
+      not_activated:   '⚠ Sua chave ainda não foi ativada. Digite-a abaixo para ativar.',
+      no_license:      '',
+    };
+    if (reason && reasonMessages[reason]) {
+      reasonBox.textContent = reasonMessages[reason];
+      reasonBox.classList.add('visible');
+    }
+
+    // Auto-formata enquanto digita: CSH-XXXX-XXXX-XXXX
+    keyInput.addEventListener('input', () => {
+      let v = keyInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      // Preserva o prefixo CSH
+      if (v.startsWith('CSH')) v = v.slice(3);
+      const parts = [];
+      if (v.length > 0)  parts.push(v.slice(0, 4));
+      if (v.length > 4)  parts.push(v.slice(4, 8));
+      if (v.length > 8)  parts.push(v.slice(8, 12));
+      keyInput.value = parts.length ? 'CSH-' + parts.join('-') : '';
+    });
+
+    btnActivate.addEventListener('click', async () => {
+      const key = keyInput.value.trim();
+      if (!key) {
+        statusEl.textContent = 'Digite sua chave.';
+        statusEl.className = 'status error';
+        return;
+      }
+
+      btnActivate.disabled = true;
+      statusEl.textContent = 'Verificando...';
+      statusEl.className = 'status loading';
+
+      try {
+        const result = await window.chessHub.license.activate(key);
+        if (result.ok) {
+          statusEl.textContent = result.message || `✓ Ativado! ${result.daysLeft} dias restantes.`;
+          statusEl.className = 'status success';
+          btnActivate.textContent = 'Abrindo...';
+          setTimeout(async () => {
+            const opened = await window.chessHub.license.openApp();
+            if (opened && opened.ok === false) {
+              statusEl.textContent = opened.error || 'Não foi possível abrir o aplicativo.';
+              statusEl.className = 'status error';
+              btnActivate.disabled = false;
+              btnActivate.textContent = 'Ativar';
+            }
+          }, 1200);
+        } else {
+          statusEl.textContent = result.error || 'Erro ao ativar.';
+          statusEl.className = 'status error';
+          btnActivate.disabled = false;
+          btnActivate.textContent = 'Ativar';
+        }
+      } catch (err) {
+        statusEl.textContent = 'Erro inesperado. Tente novamente.';
+        statusEl.className = 'status error';
+        btnActivate.disabled = false;
+        btnActivate.textContent = 'Ativar';
+      }
+    });
+
+    // Enter ativa o botão
+    keyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') btnActivate.click();
+    });
+  </script>
+</body>
+</html>

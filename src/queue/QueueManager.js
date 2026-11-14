@@ -6,7 +6,7 @@
  */
 
 const axios = require('axios');
-const { supabase } = require('../main/database');
+const { getSupabaseClient } = require('../main/database');
 
 const PRIORITY = {
   ULTRA_VIP: 1,
@@ -16,16 +16,45 @@ const PRIORITY = {
 };
 
 class QueueManager {
-  constructor(sendToRenderer) {
+  constructor(sendToRenderer, getStreamerId = () => '') {
     this.send = sendToRenderer;
+    // Função (não valor): o streamer_id é gerado/alterado enquanto o app roda.
+    this.getStreamerId = typeof getStreamerId === 'function' ? getStreamerId : () => '';
     this.paused = false;
     this.currentPlayer = null;
     this.matchHistory = [];
     this.subscribers = new Map();
   }
 
+  /**
+   * Sempre resolve a instância atual: o usuário pode trocar URL/chave nas
+   * configurações e o cliente anterior é descartado por reconnectSupabase().
+   */
+  get supabase() {
+    return getSupabaseClient();
+  }
+
+  /** Identificador da instalação; vazio = modo legado (uma única fila). */
+  get streamerId() {
+    try {
+      return String(this.getStreamerId() || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Isola as consultas da fila por streamer. Sem streamer_id configurado o
+   * comportamento antigo (fila global) é preservado para não quebrar
+   * instalações que ainda não ativaram o LivePix.
+   */
+  scopeToStreamer(query) {
+    const id = this.streamerId;
+    return id ? query.eq('streamer_id', id) : query;
+  }
+
   assertSupabase() {
-    if (!supabase) {
+    if (!this.supabase) {
       throw new Error('Supabase não está configurado. Verifique o arquivo .env.');
     }
   }
@@ -45,8 +74,23 @@ class QueueManager {
       ...row,
       username: row.player_name,
       chess_nick: row.chess_username,
-      priority: metadata.priority || PRIORITY.STANDARD,
+      priority: this.normalizePriority(metadata.priority),
     };
+  }
+
+  /**
+   * O webhook do LivePix grava priority: 'vip' (texto) e o app usa a escala
+   * numérica 1..4. Converte ambos para o mesmo valor interno.
+   */
+  normalizePriority(value) {
+    if (value === 'vip') return PRIORITY.PAID;
+
+    const numeric = Number(value);
+    if (Number.isInteger(numeric) && numeric >= PRIORITY.ULTRA_VIP && numeric <= PRIORITY.STANDARD) {
+      return numeric;
+    }
+
+    return PRIORITY.STANDARD;
   }
 
   archiveCurrentPlayer(reason = 'finished') {
@@ -60,9 +104,35 @@ class QueueManager {
       platform: player.platform || 'chess.com',
       exitedAt: new Date().toISOString(),
       reason,
+      outcome: player.outcome || null,
     };
     this.matchHistory.push(entry);
     return entry;
+  }
+
+  /**
+   * Registra o desfecho de uma partida encerrada no Chess.com para o jogador
+   * que está no palco. O palco é esvaziado automaticamente e o resultado fica
+   * anexado à entrada arquivada no histórico da sessão.
+   *
+   * @param {string} chessNick nick do oponente que estava jogando
+   * @param {'Vitória'|'Derrota'|'Empate'} outcome
+   */
+  async registerMatchEnd(chessNick, outcome) {
+    const target = this.normalizeUsername(chessNick);
+    const current = this.currentPlayer;
+    if (!current || !target) return false;
+
+    const currentNick = this.normalizeUsername(current.chess_nick);
+    if (!currentNick || currentNick !== target) return false;
+
+    // O outcome é copiado para o histórico por archiveCurrentPlayer().
+    current.outcome = outcome;
+    this.clearCurrentPlayer('match-ended');
+    await this.broadcastQueue();
+
+    console.log(`[Fila] Partida encerrada: ${current.username} — ${outcome}.`);
+    return true;
   }
 
   clearCurrentPlayer(reason = 'finished') {
@@ -89,10 +159,14 @@ class QueueManager {
 
   async getQueue() {
     this.assertSupabase();
-    const { data, error } = await supabase
-      .from('queue')
-      .select('*')
-      .in('status', ['pending', 'playing'])
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .select('*')
+        .in('status', ['pending', 'playing'])
+    );
+
+    const { data, error } = await query
       .order('position', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true });
 
@@ -117,10 +191,14 @@ class QueueManager {
   }
 
   async nextPosition() {
-    const { data, error } = await supabase
-      .from('queue')
-      .select('position')
-      .eq('status', 'pending')
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .select('position')
+        .eq('status', 'pending')
+    );
+
+    const { data, error } = await query
       .order('position', { ascending: false, nullsFirst: false })
       .limit(1);
 
@@ -130,9 +208,10 @@ class QueueManager {
 
   async addToQueue({ username, chessNick, priority, platform }) {
     this.assertSupabase();
-    const { data, error } = await supabase
+    const { data, error } = await this.supabase
       .from('queue')
       .insert({
+        streamer_id: this.streamerId || null,
         player_name: username,
         chess_username: chessNick || null,
         platform: platform || 'chess.com',
@@ -218,11 +297,18 @@ class QueueManager {
 
   async removeFromQueue(username, reason = 'removed') {
     this.assertSupabase();
-    const { error } = await supabase
-      .from('queue')
-      .delete()
-      .eq('player_name', username)
-      .in('status', ['pending', 'playing']);
+    // Soft delete: o schema revoga DELETE de anon/authenticated, então a saída
+    // da fila é registrada como 'cancelled'. As consultas da fila filtram por
+    // status, portanto a linha deixa de aparecer sem apagar o histórico.
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .update({ status: 'cancelled' })
+        .eq('player_name', username)
+        .in('status', ['pending', 'playing'])
+    );
+
+    const { error } = await query;
     if (error) throw error;
 
     // Se quem saiu da fila era o jogador em "Jogando Agora", registra no
@@ -245,10 +331,14 @@ class QueueManager {
 
   async next() {
     this.assertSupabase();
-    const { data, error } = await supabase
-      .from('queue')
-      .select('*')
-      .eq('status', 'pending')
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .select('*')
+        .eq('status', 'pending')
+    );
+
+    const { data, error } = await query
       .order('position', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(1)
@@ -282,7 +372,7 @@ class QueueManager {
       this.archiveCurrentPlayer('next');
     }
 
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await this.supabase
       .from('queue')
       .update({ status: 'playing' })
       .eq('id', data.id)
@@ -311,12 +401,14 @@ class QueueManager {
 
   async updatePlayer(id, changes) {
     this.assertSupabase();
-    const { data, error } = await supabase
-      .from('queue')
-      .update(changes)
-      .eq('id', id)
-      .select()
-      .single();
+    const query = this.scopeToStreamer(
+      this.supabase
+        .from('queue')
+        .update(changes)
+        .eq('id', id)
+    );
+
+    const { data, error } = await query.select().single();
     if (error) throw error;
     return this.toPlayer(data);
   }
@@ -370,7 +462,7 @@ class QueueManager {
   async recordMatch(queueId, playerName, opponentName, result, gameUrl = '') {
     this.assertSupabase();
     const resultMap = { vitória: 'win', derrota: 'loss', empate: 'draw' };
-    const { error } = await supabase.from('match_history').insert({
+    const { error } = await this.supabase.from('match_history').insert({
       queue_id: queueId || null,
       player_name: playerName,
       opponent_name: opponentName,

@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('chessHub', {
   pause:        ()         => ipcRenderer.invoke('queue:pause'),
   resume:       ()         => ipcRenderer.invoke('queue:resume'),
   promote:      (username) => ipcRenderer.invoke('queue:promote', username),
+  manualAdd:    (nick)     => ipcRenderer.invoke('queue:manual-add', nick),
   getHistory:   ()         => ipcRenderer.invoke('history:get'),
 
   // Config
@@ -20,6 +21,15 @@ contextBridge.exposeInMainWorld('chessHub', {
     twitchLogin: (clientId) => ipcRenderer.invoke('twitch:login', clientId),
     googleLogin: () => ipcRenderer.invoke('google:login'),
     tiktokLogin: (username) => ipcRenderer.invoke('tiktok:login', username),
+  },
+
+  // Licença (assinatura mensal, sem vínculo por máquina)
+  license: {
+    activate: (key) => ipcRenderer.invoke('license:activate', key),
+    get:      ()    => ipcRenderer.invoke('license:get'),
+    openApp:  ()    => ipcRenderer.invoke('license:open-app'),
+    // Compatibilidade com o badge do modal de Configurações.
+    status:   ()    => ipcRenderer.invoke('license:status'),
   },
 
   // Eventos do main → renderer

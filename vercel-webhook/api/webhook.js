@@ -6,6 +6,7 @@
  * URL gerada:  https://seu-projeto.vercel.app/api/webhook
  */
 
+const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const https = require('https');
 
@@ -21,6 +22,12 @@ module.exports = async (req, res) => {
   }
 
   const { type, data } = req.body;
+
+  // Valida a assinatura do Mercado Pago antes de qualquer processamento.
+  if (!validateMPSignature(req, data?.id)) {
+    console.warn('[Webhook] Assinatura inválida — requisição rejeitada.');
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
 
   // Mercado Pago envia tipo "payment"
   if (type !== 'payment') {
@@ -75,6 +82,36 @@ module.exports = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
+
+// Valida o header x-signature enviado pelo Mercado Pago.
+// Formato: ts=TIMESTAMP,v1=HASH
+function validateMPSignature(req, paymentId) {
+  const secret = process.env.MP_WEBHOOK_SECRET;
+  if (!secret) return true; // sem secret configurado: permite (modo dev)
+
+  const xSignature = req.headers['x-signature'] || '';
+  const xRequestId = req.headers['x-request-id'] || '';
+
+  const tsMatch  = xSignature.match(/ts=([^,]+)/);
+  const v1Match  = xSignature.match(/v1=([^,]+)/);
+  if (!tsMatch || !v1Match) return false;
+
+  const ts   = tsMatch[1];
+  const hash = v1Match[1];
+
+  // Manifesto assinado pelo Mercado Pago
+  const manifest = `id:${paymentId};request-id:${xRequestId};ts:${ts};`;
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(manifest)
+    .digest('hex');
+
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  const hashBuffer     = Buffer.from(hash, 'hex');
+  if (expectedBuffer.length !== hashBuffer.length) return false;
+
+  return crypto.timingSafeEqual(expectedBuffer, hashBuffer);
+}
 
 // Busca dados do pagamento na API do Mercado Pago
 function fetchMPPayment(id) {

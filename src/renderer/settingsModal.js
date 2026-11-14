@@ -1,6 +1,63 @@
 const settingsApi = window.chessHub.settings;
 let isTwitchLoggingIn = false;
 
+/**
+ * Badge discreto de licença no cabeçalho das Configurações.
+ * Recebe um resultado já carregado (evento `license:status`) ou busca o
+ * estado em memória no main process — nunca dispara uma nova consulta online.
+ */
+async function updateLicenseBadge(status) {
+  const badge = $('license-status-badge');
+  if (!badge) return;
+
+  let current = status;
+  if (!current) {
+    try {
+      current = await window.chessHub.license.status();
+    } catch (error) {
+      console.warn('[Licença] Não foi possível ler o status:', error);
+      return;
+    }
+  }
+  if (!current) return;
+
+  const reason = current.reason || '';
+  let label = t('licenseStatusInvalid', 'Inativa');
+  let tone = 'badge-red';
+
+  if (current.valid && reason === 'offline_grace') {
+    label = t('licenseStatusOffline', 'Offline');
+    tone = 'badge-vip';
+  } else if (current.valid) {
+    label = t('licenseStatusValid', 'Ativa');
+    tone = 'badge-green';
+  } else if (reason === 'needs_check') {
+    label = t('licenseStatusChecking', 'Verificando');
+    tone = 'badge-vip';
+  }
+
+  badge.textContent = label;
+  badge.className = `badge ${tone}`;
+
+  const details = [];
+  if (current.keyMasked) details.push(current.keyMasked);
+  if (current.hwidShort) {
+    details.push(`${t('licenseHwidLabel', 'ID desta máquina')}: ${current.hwidShort}`);
+  }
+  if (current.expiresAt) {
+    const expires = new Date(current.expiresAt);
+    if (!Number.isNaN(expires.getTime())) {
+      details.push(`${t('licenseExpiresAt', 'Expira em')}: ${expires.toLocaleDateString()}`);
+    }
+  } else if (current.valid) {
+    details.push(t('licenseLifetime', 'Licença vitalícia'));
+  }
+  const description = typeof licenseReasonLabel === 'function'
+    ? licenseReasonLabel(current)
+    : current.message;
+  badge.title = [description, ...details].filter(Boolean).join('\n');
+}
+
 async function openSettings() {
   const config = await settingsApi.get();
   const fields = {
@@ -13,30 +70,90 @@ async function openSettings() {
     'cfg-mp-min': config.mpMinValue || 5,
     'cfg-supabase-url': config.supabaseUrl,
     'cfg-supabase-key': config.supabaseAnonKey,
+    'cfg-language': config.language || 'pt',
+    'cfg-livepix-client-id': config.livepixClientId,
+    'cfg-livepix-base': config.livepixWebhookBaseUrl,
+    'cfg-livepix-webhook': config.livepixWebhookUrl,
   };
   for (const [id, value] of Object.entries(fields)) $(id).value = value || '';
 
+  // O segredo nunca sai do processo principal: mostramos só o placeholder.
+  const livepixSecret = $('cfg-livepix-client-secret');
+  if (livepixSecret) {
+    livepixSecret.value = '';
+    livepixSecret.placeholder = config.livepixConfigured
+      ? t('livepixSecretSavedPlaceholder', 'Salvo — deixe em branco para manter')
+      : t('livepixSecretPlaceholder', 'Client Secret do LivePix');
+  }
+  updateLivepixStatus(Boolean(config.livepixConfigured), config.livepixWebhookUrl);
+
   const twitchStatus = $('twitch-status');
-  twitchStatus.textContent = config.twitchOAuthToken ? 'Conectado' : 'Não conectado';
-  twitchStatus.className = config.twitchOAuthToken ? 'badge badge-green' : 'badge badge-red';
+  twitchStatus.textContent = config.hasTwitchToken ? 'Conectado' : 'Não conectado';
+  twitchStatus.className = config.hasTwitchToken ? 'badge badge-green' : 'badge badge-red';
   $('settings-modal').classList.add('open');
   document.querySelector('.tab-btn')?.click();
+  updateLicenseBadge();
 
   const youtubeStatus = $('youtube-status');
-  youtubeStatus.textContent = config.youtubeAccessToken
+  youtubeStatus.textContent = config.youtubeConnected
     ? `Conectado: ${config.youtubeChannelName || config.youtubeChannelId}`
     : 'Não conectado';
-  youtubeStatus.className = config.youtubeAccessToken
+  youtubeStatus.className = config.youtubeConnected
     ? 'badge badge-green'
     : 'badge badge-red';
 }
 
+function updateLivepixStatus(configured, webhookUrl = '', error = '') {
+  const status = $('livepix-status');
+  if (!status) return;
+
+  status.title = error || '';
+  if (error) {
+    status.textContent = t('livepixSyncError', 'Erro ao sincronizar');
+    status.className = 'badge badge-red';
+    return;
+  }
+
+  status.textContent = configured
+    ? t('livepixConnected', 'Configurado')
+    : t('livepixNotConfigured', 'Não configurado');
+  status.className = configured ? 'badge badge-green' : 'badge badge-red';
+
+  const webhookInput = $('cfg-livepix-webhook');
+  if (webhookInput && webhookUrl) webhookInput.value = webhookUrl;
+}
+
+async function copyLivepixWebhook() {
+  const input = $('cfg-livepix-webhook');
+  const button = $('btn-copy-livepix-webhook');
+  const value = (input?.value || '').trim();
+  if (!value) return;
+
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    input.removeAttribute('readonly');
+    input.select();
+    document.execCommand('copy');
+    input.setAttribute('readonly', 'readonly');
+  }
+
+  if (button) {
+    button.textContent = t('copied', 'Copiado!');
+    setTimeout(() => {
+      button.textContent = t('btnCopyWebhook', 'Copiar');
+    }, 1500);
+  }
+}
+
 async function saveSettings() {
   const button = $('btn-save-settings');
+  const language = $('cfg-language')?.value || 'pt';
+  const livepixSecret = $('cfg-livepix-client-secret')?.value.trim() || '';
   button.disabled = true;
-  button.textContent = 'Salvando...';
+  button.textContent = t('saving', 'Salvando...');
   try {
-    const result = await settingsApi.save({
+    const payload = {
       chessStreamerNick: $('cfg-chess-nick').value.trim(),
       twitchClientId: $('cfg-twitch-client-id').value.trim(),
       twitchChannel: $('cfg-twitch-ch').value.trim(),
@@ -46,17 +163,49 @@ async function saveSettings() {
       mpMinValue: parseFloat($('cfg-mp-min').value) || 5,
       supabaseUrl: $('cfg-supabase-url').value.trim(),
       supabaseAnonKey: $('cfg-supabase-key').value.trim(),
-    });
+      livepixClientId: $('cfg-livepix-client-id').value.trim(),
+      livepixWebhookBaseUrl: $('cfg-livepix-base').value.trim(),
+      language,
+    };
+
+    // Campo vazio não apaga o segredo salvo (o main também protege isso).
+    if (livepixSecret) payload.livepixClientSecret = livepixSecret;
+
+    const result = await settingsApi.save(payload);
     if (!result.ok) throw new Error('Não foi possível salvar as configurações.');
-    button.textContent = 'Salvo!';
+
+    // Aplica o novo idioma sem esperar reiniciar o app.
+    applyLanguage(language);
+    if (typeof renderQueue === 'function') renderQueue();
+
+    const livepix = result.livepix || {};
+    if (livepix.webhookUrl) {
+      const webhookInput = $('cfg-livepix-webhook');
+      if (webhookInput) webhookInput.value = livepix.webhookUrl;
+    }
+
+    if (livepix.configured && !livepix.synced) {
+      updateLivepixStatus(true, livepix.webhookUrl, livepix.error || 'Falha ao publicar no Supabase');
+      button.textContent = t('savedLocally', 'Salvo localmente');
+      button.disabled = false;
+      setTimeout(() => {
+        if (!button.disabled) button.textContent = t('save', 'Salvar');
+      }, 2500);
+      return;
+    }
+
+    updateLivepixStatus(Boolean(livepix.configured), livepix.webhookUrl);
+    if (livepixSecret) $('cfg-livepix-client-secret').value = '';
+
+    button.textContent = t('saved', 'Salvo!');
     setTimeout(() => {
       closeSettings();
-      button.textContent = 'Salvar';
+      button.textContent = t('save', 'Salvar');
       button.disabled = false;
     }, 800);
   } catch (error) {
     console.error('[Settings] Erro ao salvar:', error);
-    button.textContent = 'Erro ao salvar';
+    button.textContent = t('savingError', 'Erro ao salvar');
     button.disabled = false;
   }
 }
@@ -142,6 +291,11 @@ $('btn-close-settings').addEventListener('click', closeSettings);
 $('btn-cancel-settings').addEventListener('click', closeSettings);
 $('btn-save-settings').addEventListener('click', saveSettings);
 $('btn-twitch-login').addEventListener('click', loginTwitch);
+
+const copyWebhookButton = $('btn-copy-livepix-webhook');
+if (copyWebhookButton) {
+  copyWebhookButton.addEventListener('click', copyLivepixWebhook);
+}
 async function loginTikTok() {
   const button = $('btn-tiktok-login');
   if (!button) return;

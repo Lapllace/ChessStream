@@ -42,8 +42,11 @@ O painel desktop também possui controles de gerenciamento. As permissões de st
 |---|---|
 | `npm start` | Inicia Electron. |
 | `npm run dev` | Inicia com `NODE_ENV=development`; o script atual usa sintaxe POSIX. |
-| `npm run build` | Executa electron-builder. |
-| `npm run build:electron` | Alias do build. |
+| `npm run build` | Executa electron-builder para Windows (alias de `dist`). |
+| `npm run build:electron` | Alias do build multiplataforma. |
+| `npm run dist` | Gera o instalador NSIS em `dist/`. |
+| `npm run pack` | Empacota em `dist/win-unpacked` sem instalador (validação). |
+| `npm run icon` | Regenera `build/icon.ico` e `build/icon.png`. |
 
 No Windows, o script `dev` pode exigir ajuste para definir `NODE_ENV`; `npm start` permanece como o comando simples de execução.
 

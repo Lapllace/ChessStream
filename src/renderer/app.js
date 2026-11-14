@@ -3,6 +3,66 @@ let queue       = [];
 let isPaused    = false;
 let dragSrcIdx  = null;
 let matchHistory = [];
+let currentLang = 'pt';
+
+/* ── i18n ────────────────────────────────────────────────────────────────── */
+function t(key, fallback = '') {
+  const dictionary = window.translations || {};
+  const language = dictionary[currentLang] || dictionary.pt || {};
+  return language[key] ?? dictionary.pt?.[key] ?? fallback ?? key;
+}
+
+/**
+ * Percorre o DOM aplicando as traduções.
+ *
+ * Suporta:
+ *   data-i18n="chave"              → textContent
+ *   data-i18n-placeholder="chave"  → placeholder
+ *   data-i18n-title="chave"        → title (tooltip)
+ *   data-i18n-aria-label="chave"   → aria-label
+ */
+function applyLanguage(lang) {
+  const dictionary = window.translations || {};
+  const resolved = dictionary[lang] ? lang : 'pt';
+  const language = dictionary[resolved] || {};
+  currentLang = resolved;
+
+  document.documentElement.lang = {
+    pt: 'pt-BR',
+    en: 'en',
+    es: 'es',
+    ru: 'ru',
+    de: 'de',
+  }[resolved] || 'pt-BR';
+
+  document.querySelectorAll('[data-i18n]').forEach((element) => {
+    const value = language[element.dataset.i18n];
+    if (typeof value === 'string') element.textContent = value;
+  });
+
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((element) => {
+    const value = language[element.dataset.i18nPlaceholder];
+    if (typeof value === 'string') element.placeholder = value;
+  });
+
+  document.querySelectorAll('[data-i18n-title]').forEach((element) => {
+    const value = language[element.dataset.i18nTitle];
+    if (typeof value === 'string') element.title = value;
+  });
+
+  document.querySelectorAll('[data-i18n-aria-label]').forEach((element) => {
+    const value = language[element.dataset.i18nAriaLabel];
+    if (typeof value === 'string') element.setAttribute('aria-label', value);
+  });
+
+  // O botão de pausa tem dois rótulos possíveis; mantém o estado atual.
+  if (isPaused) {
+    const pauseButton = document.getElementById('btnPause');
+    if (pauseButton && language.resumeQueue) {
+      pauseButton.textContent = language.resumeQueue;
+    }
+  }
+}
 
 /* ── Elementos ───────────────────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -14,9 +74,24 @@ const btnNext     = $('btnNext');
 const btnSkip     = $('btnSkip');
 const btnPause    = $('btnPause');
 const vipToast    = $('vipToast');
+const manualDrawer   = $('manualDrawer');
+const manualToggle   = $('manualToggle');
+const manualNick     = $('manualNick');
+const manualAddBtn   = $('manualAddBtn');
+const manualFeedback = $('manualFeedback');
+let manualFeedbackTimer = null;
 
 /* ── Init ────────────────────────────────────────────────────────────────── */
 async function init() {
+  // Aplica o idioma salvo antes de montar os textos dinâmicos.
+  try {
+    const settings = await window.chessHub.settings.get();
+    applyLanguage(settings?.language || 'pt');
+  } catch (error) {
+    console.warn('[i18n] Não foi possível carregar o idioma salvo:', error);
+    applyLanguage('pt');
+  }
+
   const config = await window.chessHub.getConfig();
   if (config.streamerNick) {
     $('streamerNick').textContent = config.streamerNick;
@@ -34,7 +109,7 @@ function renderQueue() {
   if (queue.length === 0) {
     queueList.innerHTML = `
       <li class="queue-empty">
-        Fila vazia — viewers usam <code>!jogar &lt;nick&gt;</code> no chat
+        ${escHtml(t('queueEmpty', 'Fila vazia — viewers usam !jogar <nick> no chat'))}
       </li>`;
     return;
   }
@@ -84,7 +159,7 @@ function renderQueue() {
 /* ── Render do jogador atual ─────────────────────────────────────────────── */
 function renderCurrentPlayer(player) {
   if (!player) {
-    currentCard.innerHTML = `<div class="current-empty">Nenhum desafiante ativo</div>`;
+    currentCard.innerHTML = `<div class="current-empty">${escHtml(t('currentEmpty', 'Nenhum desafiante ativo'))}</div>`;
     return;
   }
 
@@ -104,14 +179,18 @@ function platformBadge(platform) {
   if (platform === 'twitch')  return `<span class="badge badge-twitch">Twitch</span>`;
   if (platform === 'youtube') return `<span class="badge badge-youtube">YouTube</span>`;
   if (platform === 'tiktok')  return `<span class="badge badge-tiktok">TikTok</span>`;
+  if (platform === 'chess')   return `<span class="badge badge-chess">Chess.com</span>`;
+  if (platform === 'manual')  return `<span class="badge badge-manual">Manual</span>`;
+  if (platform === 'livepix') return `<span class="badge badge-vip">LivePix</span>`;
   if (platform === 'payment') return `<span class="badge badge-vip">💳 Pago</span>`;
   return '';
 }
 
 function priorityBadge(priority) {
-  if (priority === 1) return `<span class="badge badge-vip">Ultra VIP</span>`;
-  if (priority === 2) return `<span class="badge badge-vip">⭐ VIP</span>`;
-  if (priority === 3) return `<span class="badge badge-member">Membro</span>`;
+  const normalized = priority === 'vip' ? 2 : Number(priority);
+  if (normalized === 1) return `<span class="badge badge-vip">Ultra VIP</span>`;
+  if (normalized === 2) return `<span class="badge badge-vip">⭐ VIP</span>`;
+  if (normalized === 3) return `<span class="badge badge-member">Membro</span>`;
   return '';
 }
 
@@ -134,6 +213,54 @@ function bindEvents() {
       await window.chessHub.pause();
     }
   });
+
+  manualToggle.addEventListener('click', () => {
+    const isOpen = manualDrawer.classList.toggle('open');
+    manualToggle.setAttribute('aria-expanded', String(isOpen));
+    if (isOpen) manualNick.focus();
+  });
+
+  manualAddBtn.addEventListener('click', handleManualAdd);
+
+  manualNick.addEventListener('keypress', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    handleManualAdd();
+  });
+}
+
+async function handleManualAdd() {
+  const nick = manualNick.value.trim();
+  if (!nick) {
+    manualNick.focus();
+    return;
+  }
+
+  // Limpa imediatamente para permitir adicionar vários jogadores em sequência.
+  manualNick.value = '';
+  manualNick.focus();
+
+  try {
+    const result = await window.chessHub.manualAdd(nick);
+    if (result?.ok) {
+      showManualFeedback(result.msg || `✅ ${nick} adicionado à fila.`, true);
+    } else {
+      showManualFeedback(result?.msg || 'Não foi possível adicionar esse nick.', false);
+    }
+  } catch (error) {
+    console.error('[Fila] Erro ao adicionar manualmente:', error);
+    showManualFeedback('Não foi possível adicionar agora.', false);
+  }
+}
+
+function showManualFeedback(message, success) {
+  manualFeedback.textContent = message;
+  manualFeedback.className = `manual-feedback visible ${success ? 'success' : 'error'}`;
+
+  clearTimeout(manualFeedbackTimer);
+  manualFeedbackTimer = setTimeout(() => {
+    manualFeedback.className = 'manual-feedback';
+  }, 4000);
 }
 
 async function handleRemove(username) {
@@ -191,7 +318,7 @@ window.chessHub.on('queue:current-player', (player) => {
 
 window.chessHub.on('queue:paused', (state) => {
   isPaused = state;
-  btnPause.textContent = state ? '▶ Retomar fila' : '⏸ Pausar fila';
+  btnPause.textContent = state ? t('resumeQueue', '▶ Retomar fila') : t('pauseQueue', '⏸ Pausar fila');
   btnPause.classList.toggle('paused', state);
 });
 
@@ -239,6 +366,16 @@ window.chessHub.on('queue:vip-alert', ({ username, chessNick, amount_cents }) =>
   vipToast.classList.add('visible');
   setTimeout(() => vipToast.classList.remove('visible'), 5000);
   playVipSound();
+});
+
+// Aviso de licença prestes a expirar (enviado no boot e na revalidação).
+window.chessHub.on('license:warning', ({ daysLeft, expiresAt }) => {
+  const banner = document.getElementById('licenseBanner');
+  if (!banner) return;
+  banner.textContent = daysLeft <= 1
+    ? '⚠ Licença expira HOJE! Renove agora.'
+    : `⚠ Licença expira em ${daysLeft} dia(s). Renove para continuar.`;
+  banner.style.display = 'block';
 });
 
 window.chessHub.on('chat:status', ({ platform, connected }) => {

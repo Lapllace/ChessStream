@@ -185,10 +185,19 @@ O painel desktop será aberto. Com o Supabase e ao menos uma plataforma configur
 ### 6. Gerar instalador
 
 ```bash
-npm run build
+npm run pack   # empacota em dist/win-unpacked (sem instalador) — validação rápida
+npm run dist   # gera o instalador NSIS em dist/ (ChessStream Hub Setup <versão>.exe)
+npm run icon   # regenera build/icon.ico e build/icon.png
 ```
 
-O `electron-builder` usa a configuração atual de `package.json` para gerar artefatos em `dist/` (NSIS no Windows, DMG no macOS e AppImage no Linux).
+O `electron-builder` lê a configuração de `package.json` e gera os artefatos em `dist/`. O instalador NSIS é assinado apenas se um certificado estiver configurado; sem certificado, o Windows exibirá o aviso do SmartScreen.
+
+Para habilitar o auto-update, publique o instalador e o `latest.yml` como assets de uma **Release** no GitHub e substitua os placeholders `owner`/`repo` em `build.publish` (`SEU_USUARIO_GITHUB`). O app instalado consulta as releases e aplica a atualização ao ser fechado.
+
+```bash
+gh release create v1.0.0 "dist/ChessStream Hub Setup 1.0.0.exe" dist/latest.yml dist/*.blockmap \
+  --title "ChessStream Hub v1.0.0" --notes "Primeira versão comercial"
+```
 
 ## 💬 Comandos de chat
 

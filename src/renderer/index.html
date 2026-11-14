@@ -24,30 +24,46 @@
   </div>
 
   <nav class="sidebar" aria-label="Navegação principal">
-    <div class="nav-icon active" title="Fila">♟</div>
-    <button class="nav-icon" id="btn-history" title="Histórico de hoje" type="button">🕘</button>
-    <button class="nav-icon" id="btn-settings" title="Configurações" type="button">⚙</button>
+    <div class="nav-icon active" data-i18n-title="queueTitle" title="Fila">♟</div>
+    <button class="nav-icon" id="btn-history" data-i18n-title="historyTitle" title="Histórico de hoje" type="button">🕘</button>
+    <button class="nav-icon" id="btn-settings" data-i18n-title="settingsTitle" title="Configurações" type="button">⚙</button>
   </nav>
 
   <div class="app-wrapper" id="app-wrapper">
+    <!-- Aviso de licença (7 dias antes de expirar). Fica acima do header. -->
+    <div id="licenseBanner" style="
+      display: none;
+      background: rgba(251,191,36,0.12);
+      border-bottom: 1px solid rgba(251,191,36,0.4);
+      color: #fbbf24;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 8px 16px;
+      text-align: center;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 100;
+    "></div>
+
     <header class="header">
       <div class="header-left">
         <span class="logo">♟ ChessStream</span>
         <span class="streamer-nick" id="streamerNick">—</span>
       </div>
       <div class="header-right">
-        <span class="status-pill" id="statusTwitch" data-platform="twitch">TWITCH</span>
-        <span class="status-pill" id="statusYoutube" data-platform="youtube">YOUTUBE</span>
-        <span class="status-pill" id="statusTiktok" data-platform="tiktok">TIKTOK</span>
-        <span class="status-pill" id="statusChess" data-platform="chess">CHESS</span>
+        <span class="status-pill" id="statusTwitch" data-platform="twitch" data-i18n="statusTwitch">TWITCH</span>
+        <span class="status-pill" id="statusYoutube" data-platform="youtube" data-i18n="statusYoutube">YOUTUBE</span>
+        <span class="status-pill" id="statusTiktok" data-platform="tiktok" data-i18n="statusTiktok">TIKTOK</span>
+        <span class="status-pill" id="statusChess" data-platform="chess" data-i18n="statusChess">CHESS</span>
       </div>
     </header>
 
     <main class="layout">
       <section class="center-stage current-section">
-        <h2 class="section-label">Jogando agora</h2>
+        <h2 class="section-label" data-i18n="playingNow">Jogando agora</h2>
         <div class="current-card" id="currentCard">
-          <div class="current-empty">Nenhum desafiante ativo</div>
+          <div class="current-empty" data-i18n="currentEmpty">Nenhum desafiante ativo</div>
         </div>
         <div class="game-result" id="gameResult" style="display:none"></div>
       </section>
@@ -55,20 +71,38 @@
       <div class="right-column">
         <section class="queue-box queue-section">
           <div class="queue-header">
-            <h2 class="section-label">Fila <span class="queue-count" id="queueCount">0</span></h2>
-            <span class="queue-hint">Arraste para reordenar</span>
+            <h2 class="section-label">
+              <span data-i18n="queueTitle">Fila de espera</span>
+              <span class="queue-count" id="queueCount">0</span>
+            </h2>
+            <span class="queue-hint" data-i18n="queueHint">Arraste para reordenar</span>
           </div>
           <ul class="queue-list" id="queueList">
-            <li class="queue-empty">Fila vazia — viewers usam <code>!jogar &lt;nick&gt;</code> no chat</li>
+            <li class="queue-empty" data-i18n="queueEmpty">Fila vazia — viewers usam !jogar &lt;nick&gt; no chat</li>
           </ul>
+
+          <div class="manual-drawer" id="manualDrawer">
+            <button class="manual-toggle" id="manualToggle" type="button"
+              aria-expanded="false" aria-controls="manualInputBar">
+              <span class="manual-toggle-arrow" aria-hidden="true">^</span>
+              <span data-i18n="addManual">Adicionar manualmente</span>
+            </button>
+            <div class="manual-input-bar" id="manualInputBar">
+              <input id="manualNick" type="text" data-i18n-placeholder="manualNickPlaceholder"
+                placeholder="Nick do Chess.com" autocomplete="off" spellcheck="false" />
+              <button class="manual-add-btn" id="manualAddBtn" type="button"
+                title="Adicionar à fila">+</button>
+            </div>
+            <div class="manual-feedback" id="manualFeedback" role="status" aria-live="polite"></div>
+          </div>
         </section>
 
         <section class="controls-box">
-          <h2 class="section-label">Controles</h2>
+          <h2 class="section-label" data-i18n="controlsTitle">Controles</h2>
           <div class="controls">
-            <button class="btn btn-primary" id="btnNext">▶ Chamar próximo</button>
-            <button class="btn btn-ghost" id="btnSkip">⏭ Gerenciar fila</button>
-            <button class="btn btn-ghost" id="btnPause">⏸ Pausar fila</button>
+            <button class="btn btn-primary" id="btnNext" data-i18n="callNext">▶ Chamar próximo</button>
+            <button class="btn btn-ghost" id="btnSkip" data-i18n="manageQueue">⏭ Gerenciar fila</button>
+            <button class="btn btn-ghost" id="btnPause" data-i18n="pauseQueue">⏸ Pausar fila</button>
           </div>
         </section>
       </div>
@@ -80,56 +114,129 @@
   <div class="settings-modal" id="settings-modal">
     <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="settings-header">
-        <h2 id="settings-title">Configurações</h2>
+        <h2 id="settings-title" data-i18n="settingsTitle">Configurações</h2>
+        <div class="settings-license">
+          <span data-i18n="licenseStatusLabel">Licença</span>
+          <strong id="license-status-badge" class="badge badge-red" title="">—</strong>
+        </div>
         <button class="btn-icon" id="btn-close-settings" aria-label="Fechar" type="button">✕</button>
       </div>
       <div class="settings-tabs">
-        <button class="tab-btn" data-target="chess" type="button">Chess &amp; Twitch</button>
-        <button class="tab-btn" data-target="tiktok" type="button">TikTok</button>
-        <button class="tab-btn" data-target="youtube" type="button">YouTube</button>
-        <button class="tab-btn" data-target="payments" type="button">Pagamentos</button>
-        <button class="tab-btn" data-target="cloud" type="button">Nuvem</button>
+        <button class="tab-btn" data-target="chess" type="button" data-i18n="tabChess">Chess &amp; Twitch</button>
+        <button class="tab-btn" data-target="tiktok" type="button" data-i18n="tabTiktok">TikTok</button>
+        <button class="tab-btn" data-target="youtube" type="button" data-i18n="tabYoutube">YouTube</button>
+        <button class="tab-btn" data-target="payments" type="button" data-i18n="tabPayments">Pagamentos</button>
+        <button class="tab-btn" data-target="cloud" type="button" data-i18n="tabCloud">Nuvem</button>
       </div>
       <div class="settings-grid">
         <div class="settings-tab" data-tab="chess">
-          <label>Nick Chess.com<input id="cfg-chess-nick" type="text"></label>
-          <label>Canal Twitch<input id="cfg-twitch-ch" type="text"></label>
-          <label>Username Twitch (bot)<input id="cfg-twitch-username" type="text" placeholder="Deixe vazio para usar o canal como username"></label>
-          <label>Client ID Twitch<input id="cfg-twitch-client-id" type="text" placeholder="Obtido no dev.twitch.tv"></label>
+          <label>
+            <span data-i18n="language">Idioma</span>
+            <select id="cfg-language">
+              <option value="pt">Português (BR)</option>
+              <option value="en">English</option>
+              <option value="es">Español</option>
+              <option value="ru">Русский</option>
+              <option value="de">Deutsch</option>
+            </select>
+          </label>
+          <label>
+            <span data-i18n="lblChessNick">Nick Chess.com</span>
+            <input id="cfg-chess-nick" type="text">
+          </label>
+          <label>
+            <span data-i18n="lblTwitchChannel">Canal Twitch</span>
+            <input id="cfg-twitch-ch" type="text">
+          </label>
+          <label>
+            <span data-i18n="lblTwitchUsername">Username Twitch (bot)</span>
+            <input id="cfg-twitch-username" type="text" placeholder="Deixe vazio para usar o canal como username">
+          </label>
+          <label>
+            <span data-i18n="lblTwitchClientId">Client ID Twitch</span>
+            <input id="cfg-twitch-client-id" type="text" placeholder="Obtido no dev.twitch.tv">
+          </label>
           <div class="settings-twitch">
-            <span>Status: <strong id="twitch-status" class="badge badge-red">Não conectado</strong></span>
-            <button class="btn btn-ghost" id="btn-twitch-login" type="button">Conectar Twitch</button>
+            <span><span data-i18n="statusLabel">Status:</span> <strong id="twitch-status" class="badge badge-red">Não conectado</strong></span>
+            <button class="btn btn-ghost" id="btn-twitch-login" type="button" data-i18n="btnTwitchLogin">Conectar Twitch</button>
           </div>
         </div>
         <div class="settings-tab" data-tab="tiktok">
-          <label>Username TikTok (da live)
+          <label>
+            <span data-i18n="lblTikTokUsername">Username TikTok (da live)</span>
             <input id="cfg-tiktok-username" type="text" placeholder="ex: nick_do_streamer">
           </label>
           <div class="tiktok-login-action">
-            <button type="button" id="btn-tiktok-login" class="btn btn-ghost">
+            <button type="button" id="btn-tiktok-login" class="btn btn-ghost" data-i18n="btnTikTokLogin">
               Conectar conta TikTok (recomendado)
             </button>
-            <small>Faça login na sua conta do TikTok para evitar bloqueios de leitura do chat.</small>
+            <small data-i18n="tiktokHint">Faça login na sua conta do TikTok para evitar bloqueios de leitura do chat.</small>
           </div>
         </div>
         <div class="settings-tab" data-tab="youtube">
           <div class="settings-youtube">
-            <span>Status: <strong id="youtube-status" class="badge badge-red">Não conectado</strong></span>
-            <button type="button" class="btn btn-ghost" id="btn-google-login">Entrar com o Google</button>
+            <span><span data-i18n="statusLabel">Status:</span> <strong id="youtube-status" class="badge badge-red">Não conectado</strong></span>
+            <button type="button" class="btn btn-ghost" id="btn-google-login" data-i18n="btnGoogleLogin">Entrar com o Google</button>
           </div>
         </div>
         <div class="settings-tab" data-tab="payments">
-          <label>Token Mercado Pago<input id="cfg-mp-token" type="password"></label>
-          <label>Valor mínimo VIP (R$)<input id="cfg-mp-min" type="number" min="0.50" step="0.50" value="5.00"></label>
+          <div class="settings-livepix">
+            <h3 data-i18n="livepixTitle">LivePix (VIP via PIX)</h3>
+            <p class="settings-help" data-i18n="livepixHint">
+              Use as credenciais da sua própria aplicação LivePix. A fila VIP fica isolada por streamer.
+            </p>
+            <label>
+              <span data-i18n="lblLivepixClientId">LivePix Client ID</span>
+              <input id="cfg-livepix-client-id" type="text" autocomplete="off" placeholder="livepix_client_id">
+            </label>
+            <label>
+              <span data-i18n="lblLivepixClientSecret">LivePix Client Secret</span>
+              <input id="cfg-livepix-client-secret" type="password" autocomplete="new-password" placeholder="••••••••">
+            </label>
+            <div class="settings-livepix-status">
+              <span><span data-i18n="statusLabel">Status:</span> <strong id="livepix-status" class="badge badge-red">Não configurado</strong></span>
+            </div>
+            <label>
+              <span data-i18n="lblLivepixWebhook">URL do Webhook</span>
+              <div class="copy-row">
+                <input id="cfg-livepix-webhook" type="text" readonly>
+                <button class="btn btn-ghost" id="btn-copy-livepix-webhook" type="button" data-i18n="btnCopyWebhook">Copiar</button>
+              </div>
+            </label>
+            <small class="settings-help" data-i18n="livepixWebhookHint">
+              Cole esta URL no painel do LivePix. Ela já inclui a identificação e o segredo desta instalação.
+            </small>
+          </div>
+          <label>
+            <span data-i18n="lblMpToken">Token Mercado Pago</span>
+            <input id="cfg-mp-token" type="password">
+          </label>
+          <label>
+            <span data-i18n="lblMpMin">Valor mínimo VIP (R$)</span>
+            <input id="cfg-mp-min" type="number" min="0.50" step="0.50" value="5.00">
+          </label>
         </div>
         <div class="settings-tab" data-tab="cloud">
-          <label>URL Supabase<input id="cfg-supabase-url" type="url"></label>
-          <label>Chave anon Supabase<input id="cfg-supabase-key" type="password"></label>
+          <label>
+            <span data-i18n="lblSupabaseUrl">URL Supabase</span>
+            <input id="cfg-supabase-url" type="url">
+          </label>
+          <label>
+            <span data-i18n="lblSupabaseKey">Chave anon Supabase</span>
+            <input id="cfg-supabase-key" type="password">
+          </label>
+          <label>
+            <span data-i18n="lblLivepixBaseUrl">URL base do webhook LivePix</span>
+            <input id="cfg-livepix-base" type="url" placeholder="https://seu-projeto.vercel.app/api/livepix">
+          </label>
+          <small class="settings-help" data-i18n="livepixBaseHint">
+            Só altere se você mesmo hospedar a função do webhook na Vercel.
+          </small>
         </div>
       </div>
       <div class="settings-actions">
-        <button class="btn btn-ghost" id="btn-cancel-settings" type="button">Cancelar</button>
-        <button class="btn btn-primary" id="btn-save-settings" type="button">Salvar</button>
+        <button class="btn btn-ghost" id="btn-cancel-settings" type="button" data-i18n="cancel">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-settings" type="button" data-i18n="save">Salvar</button>
       </div>
     </div>
   </div>
@@ -137,15 +244,16 @@
   <div class="settings-modal" id="history-modal">
     <div class="settings-dialog history-dialog" role="dialog" aria-modal="true" aria-labelledby="history-title">
       <div class="settings-header">
-        <h2 id="history-title">Histórico de Hoje</h2>
+        <h2 id="history-title" data-i18n="historyTitle">Histórico de Hoje</h2>
         <button class="btn-icon" id="btn-close-history" aria-label="Fechar" type="button">✕</button>
       </div>
       <ul class="history-list" id="history-list">
-        <li class="history-empty">Nenhum jogador passou por aqui hoje.</li>
+        <li class="history-empty" data-i18n="historyEmpty">Nenhum jogador passou por aqui hoje.</li>
       </ul>
     </div>
   </div>
 
+  <script src="i18n/translations.js"></script>
   <script src="app.js"></script>
   <script src="settingsModal.js"></script>
   <script src="historyModal.js"></script>
