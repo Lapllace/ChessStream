@@ -112,6 +112,12 @@
       line-height: 1.6;
     }
     .footer a { color: #9d4edd; text-decoration: none; }
+    .terms-gate { margin-top: 20px; padding: 12px; border: 1px solid #2a1f4e; text-align: left; }
+    .terms-gate label { display: flex; gap: 8px; align-items: flex-start; text-transform: none; letter-spacing: 0; color: #9b92c8; }
+    .terms-gate button { width: auto; margin: 8px 0 10px; padding: 7px 10px; font-size: 8px; }
+    .terms-gate input { width: auto; margin: 2px 0 0; }
+    .legal-reader { display: none; height: 180px; overflow-y: auto; margin-bottom: 10px; padding: 10px; color: #9b92c8; background: #09071a; border: 1px solid #2a1f4e; font: 11px/1.5 Inter, sans-serif; white-space: pre-wrap; user-select: text; }
+    .legal-reader.open { display: block; }
   </style>
 </head>
 <body>
@@ -134,6 +140,12 @@
     <button id="btnActivate">Ativar</button>
     <div class="status" id="status"></div>
 
+    <div class="terms-gate" id="termsGate">
+      <button id="btnReadTerms" type="button">Ler Termos e Privacidade</button>
+      <pre class="legal-reader" id="legalReader"></pre>
+      <label><input id="termsAccepted" type="checkbox"> Li e aceito os Termos e Condições</label>
+    </div>
+
     <div class="footer">
       Não tem uma chave? Entre em contato.<br>
       <a href="https://discord.com/users/1401221715866157149" target="_blank" id="linkContact">Falar no Discord</a>
@@ -145,6 +157,10 @@
     const btnActivate = document.getElementById('btnActivate');
     const statusEl    = document.getElementById('status');
     const reasonBox   = document.getElementById('reasonBox');
+    const termsGate = document.getElementById('termsGate');
+    const termsCheckbox = document.getElementById('termsAccepted');
+    const readTermsButton = document.getElementById('btnReadTerms');
+    const legalReader = document.getElementById('legalReader');
 
     // Lê o motivo da URL (?reason=expired etc.)
     const params = new URLSearchParams(window.location.search);
@@ -161,6 +177,29 @@
       reasonBox.textContent = reasonMessages[reason];
       reasonBox.classList.add('visible');
     }
+
+    window.chessHub.settings.get().then(async (settings) => {
+      if (settings?.termsAccepted) {
+        termsGate.style.display = 'none';
+        return;
+      }
+      btnActivate.disabled = true;
+      const documents = await window.chessHub.terms.get();
+      readTermsButton.addEventListener('click', () => {
+        legalReader.textContent = `${documents.license}\n\n--- POLÍTICA DE PRIVACIDADE ---\n\n${documents.privacy}`;
+        legalReader.classList.toggle('open');
+      });
+    }).catch(() => {
+      btnActivate.disabled = true;
+    });
+    termsCheckbox.addEventListener('change', async () => {
+      if (!termsCheckbox.checked) {
+        btnActivate.disabled = true;
+        return;
+      }
+      const accepted = await window.chessHub.terms.accept();
+      btnActivate.disabled = !accepted?.ok;
+    });
 
     // Auto-formata enquanto digita: CSH-XXXX-XXXX-XXXX
     keyInput.addEventListener('input', () => {

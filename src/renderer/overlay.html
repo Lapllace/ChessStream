@@ -111,11 +111,28 @@
     // Recebe atualizações via IPC enviado pelo overlay server
     const list = document.getElementById('queueList');
 
+    // Cria um elemento e escreve o texto via textContent. Nada vindo da fila
+    // (player_name, chess_username, mensagens do chat etc.) é interpretado
+    // como HTML pelo Browser Source do OBS.
+    function createTextElement(tagName, className, text) {
+      const element = document.createElement(tagName);
+      if (className) element.className = className;
+      element.textContent = text == null ? '' : String(text);
+      return element;
+    }
+
+    function createBadge(className, label) {
+      const badge = document.createElement('span');
+      badge.className = className;
+      badge.textContent = label;
+      return badge;
+    }
+
     function renderQueue(queue, current) {
-      list.innerHTML = '';
+      list.replaceChildren();
 
       if ((!queue || queue.length === 0) && !current) {
-        list.innerHTML = '<div class="empty">Fila vazia</div>';
+        list.appendChild(createTextElement('div', 'empty', 'Fila vazia'));
         return;
       }
 
@@ -127,10 +144,11 @@
         const item = document.createElement('div');
         item.className = 'queue-item' + (player._isCurrent ? ' current' : '');
 
+        // Valores internos (classes/rótulos fixos) — nunca dados externos.
         const platform = player.platform || 'chess.com';
-        const badgeClass = platform === 'twitch'  ? 'badge-twitch'
-                         : platform === 'youtube' ? 'badge-youtube'
-                         : platform === 'tiktok'  ? 'badge-tiktok'
+        const badgeClass = platform === 'twitch'  ? 'badge badge-twitch'
+                         : platform === 'youtube' ? 'badge badge-youtube'
+                         : platform === 'tiktok'  ? 'badge badge-tiktok'
                          : '';
         const badgeLabel = platform === 'twitch'  ? 'Twitch'
                          : platform === 'youtube' ? 'YouTube'
@@ -138,13 +156,17 @@
                          : '♟';
         const isVip = player.priority <= 2;
 
-        item.innerHTML = `
-          <span class="queue-pos">${player._isCurrent ? '▶' : '#' + (i + (current ? 0 : 1))}</span>
-          <span class="queue-name">${player.username}</span>
-          <span class="queue-chess">${player.chess_nick || ''}</span>
-          ${badgeClass ? `<span class="badge ${badgeClass}">${badgeLabel}</span>` : ''}
-          ${isVip ? '<span class="badge badge-vip">VIP</span>' : ''}
-        `;
+        item.appendChild(createTextElement(
+          'span',
+          'queue-pos',
+          player._isCurrent ? '▶' : '#' + (i + (current ? 0 : 1))
+        ));
+        item.appendChild(createTextElement('span', 'queue-name', player.username));
+        item.appendChild(createTextElement('span', 'queue-chess', player.chess_nick || ''));
+
+        if (badgeClass) item.appendChild(createBadge(badgeClass, badgeLabel));
+        if (isVip) item.appendChild(createBadge('badge badge-vip', 'VIP'));
+
         list.appendChild(item);
       });
     }

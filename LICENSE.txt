@@ -143,6 +143,9 @@ Software ("Termos"). Caso não concorde, não instale e não utilize o software.
 7.3. O Licenciado é o controlador dos dados de seus Espectadores que inserir ou
      coletar por meio do Software e responde pelas bases legais, avisos e
      direitos dos titulares.
+7.4. O Licenciado declara ciência de que a equipe técnica da Tenebris mantém
+     acesso administrativo controlado para suporte e manutenção, conforme
+     detalhado em docs/PRIVACY.md.
 
 ──────────────────────────────────────────────────────────────────────────────
 8. ATUALIZAÇÕES E SUPORTE

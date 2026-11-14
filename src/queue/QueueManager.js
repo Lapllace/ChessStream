@@ -6,6 +6,7 @@
  */
 
 const axios = require('axios');
+const { randomUUID } = require('crypto');
 const { getSupabaseClient } = require('../main/database');
 
 const PRIORITY = {
@@ -24,6 +25,7 @@ class QueueManager {
     this.currentPlayer = null;
     this.matchHistory = [];
     this.subscribers = new Map();
+    this.warnedMissingQueueRpc = false;
   }
 
   /**
@@ -57,6 +59,26 @@ class QueueManager {
     if (!this.supabase) {
       throw new Error('Supabase não está configurado. Verifique o arquivo .env.');
     }
+  }
+
+  /**
+   * RPC ausente = Supabase próprio rodando um schema anterior ao multi-tenant.
+   * Códigos: PGRST202 (PostgREST não encontra a função) e 42883 (Postgres).
+   */
+  isMissingRpc(error) {
+    if (!error) return false;
+    const code = String(error.code || '');
+    if (code === 'PGRST202' || code === '42883') return true;
+    return /could not find the function|function .* does not exist/i
+      .test(String(error.message || ''));
+  }
+
+  /** Schema próprio antigo, sem a coluna streamer_id. */
+  isUnknownStreamerColumn(error) {
+    if (!error) return false;
+    const code = String(error.code || '');
+    if (code !== '42703' && code !== 'PGRST204') return false;
+    return /streamer_id/i.test(String(error.message || ''));
   }
 
   parseNotes(notes) {
@@ -159,6 +181,34 @@ class QueueManager {
 
   async getQueue() {
     this.assertSupabase();
+    const streamerId = this.streamerId;
+
+    // Caminho SaaS: o SELECT direto está bloqueado por RLS, então a fila é
+    // lida pela RPC, que devolve exclusivamente as linhas deste streamer.
+    if (streamerId) {
+      const { data, error } = await this.supabase.rpc('get_streamer_queue', {
+        p_streamer_id: streamerId,
+      });
+
+      if (!error) {
+        return (data || []).map((row) => this.toPlayer(row));
+      }
+
+      if (!this.isMissingRpc(error)) {
+        console.error('[Supabase] Erro ao buscar fila:', error.message);
+        throw error;
+      }
+
+      // Fallback: Supabase próprio com schema antigo, sem a RPC e com SELECT
+      // liberado. O modo legado continua funcionando nessa instalação.
+      // A RPC é tentada de novo nas próximas leituras (a função pode passar a
+      // existir depois de rodar o schema.sql), mas o aviso aparece só uma vez.
+      if (!this.warnedMissingQueueRpc) {
+        this.warnedMissingQueueRpc = true;
+        console.warn('[Supabase] RPC get_streamer_queue ausente — usando SELECT direto.');
+      }
+    }
+
     const query = this.scopeToStreamer(
       this.supabase
         .from('queue')
@@ -191,42 +241,60 @@ class QueueManager {
   }
 
   async nextPosition() {
-    const query = this.scopeToStreamer(
-      this.supabase
-        .from('queue')
-        .select('position')
-        .eq('status', 'pending')
+    // Deriva da própria fila visível (sem SELECT direto na tabela).
+    const queue = await this.getQueue();
+    const highest = queue.reduce(
+      (max, player) => Math.max(max, Number(player.position) || 0),
+      0
     );
-
-    const { data, error } = await query
-      .order('position', { ascending: false, nullsFirst: false })
-      .limit(1);
-
-    if (error) throw error;
-    return (data?.[0]?.position || 0) + 1;
+    return highest + 1;
   }
 
   async addToQueue({ username, chessNick, priority, platform }) {
     this.assertSupabase();
-    const { data, error } = await this.supabase
-      .from('queue')
-      .insert({
-        streamer_id: this.streamerId || null,
-        player_name: username,
-        chess_username: chessNick || null,
-        platform: platform || 'chess.com',
-        status: 'pending',
-        position: await this.nextPosition(),
-        notes: JSON.stringify({ priority: priority || PRIORITY.STANDARD }),
-      })
-      .select()
-      .single();
+
+    const streamerId = this.streamerId;
+    if (!streamerId) {
+      // A policy de INSERT exige streamer_id válido: falhar aqui é melhor do
+      // que gravar em uma fila global compartilhada entre todos os streamers.
+      throw new Error(
+        'streamer_id não configurado nesta instalação. Abra Configurações e ative o LivePix para gerar sua identidade de fila.'
+      );
+    }
+
+    // ID gerado no cliente: o INSERT não precisa de RETURNING (que exigiria
+    // uma policy de SELECT, removida de propósito).
+    const row = {
+      id: randomUUID(),
+      streamer_id: streamerId,
+      player_name: username,
+      chess_username: chessNick || null,
+      platform: platform || 'chess.com',
+      status: 'pending',
+      position: await this.nextPosition(),
+      notes: JSON.stringify({ priority: priority || PRIORITY.STANDARD }),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let { error } = await this.supabase.from('queue').insert(row);
+
+    // Fallback: Supabase próprio com schema antigo (sem streamer_id).
+    if (error && this.isUnknownStreamerColumn(error)) {
+      const legacyRow = { ...row };
+      delete legacyRow.streamer_id;
+      const retry = await this.supabase.from('queue').insert(legacyRow);
+      error = retry.error;
+      if (!error) {
+        console.warn('[Supabase] Coluna streamer_id ausente — gravando em modo legado.');
+      }
+    }
 
     if (error) {
       console.error('[Supabase] Erro ao adicionar à fila:', error.message);
       throw error;
     }
-    return this.toPlayer(data);
+    return this.toPlayer(row);
   }
 
   normalizeUsername(username) {
@@ -331,20 +399,12 @@ class QueueManager {
 
   async next() {
     this.assertSupabase();
-    const query = this.scopeToStreamer(
-      this.supabase
-        .from('queue')
-        .select('*')
-        .eq('status', 'pending')
-    );
 
-    const { data, error } = await query
-      .order('position', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single();
+    // A fila já vem da RPC ordenada por position/created_at.
+    const queue = await this.getQueue();
+    const candidate = queue.find((player) => player.status === 'pending');
 
-    if (error?.code === 'PGRST116') {
+    if (!candidate) {
       // Fila vazia: o jogador atual sai de "Jogando Agora", vai para o
       // histórico e o painel volta a exibir "Nenhum desafiante ativo".
       if (this.currentPlayer) {
@@ -359,7 +419,6 @@ class QueueManager {
       await this.broadcastQueue();
       return null;
     }
-    if (error) throw error;
 
     // Já havia alguém em "Jogando Agora": encerra e registra no histórico
     // antes de promover o próximo da fila.
@@ -372,15 +431,14 @@ class QueueManager {
       this.archiveCurrentPlayer('next');
     }
 
-    const { data: updated, error: updateError } = await this.supabase
+    // Sem RETURNING: a policy de SELECT foi removida de propósito.
+    const { error: updateError } = await this.supabase
       .from('queue')
       .update({ status: 'playing' })
-      .eq('id', data.id)
-      .select()
-      .single();
+      .eq('id', candidate.id);
     if (updateError) throw updateError;
 
-    this.currentPlayer = this.toPlayer(updated);
+    this.currentPlayer = { ...candidate, status: 'playing' };
     await this.broadcastQueue();
     this.send('queue:current-player', this.currentPlayer);
     return this.currentPlayer;
@@ -408,9 +466,13 @@ class QueueManager {
         .eq('id', id)
     );
 
-    const { data, error } = await query.select().single();
+    // Sem .select(): não há policy de SELECT. O estado atualizado é lido de
+    // volta pela RPC, que também garante o isolamento por streamer.
+    const { error } = await query;
     if (error) throw error;
-    return this.toPlayer(data);
+
+    const queue = await this.getQueue();
+    return queue.find((player) => player.id === id) || null;
   }
 
   async promote(username) {
@@ -462,13 +524,27 @@ class QueueManager {
   async recordMatch(queueId, playerName, opponentName, result, gameUrl = '') {
     this.assertSupabase();
     const resultMap = { vitória: 'win', derrota: 'loss', empate: 'draw' };
-    const { error } = await this.supabase.from('match_history').insert({
+    const row = {
       queue_id: queueId || null,
       player_name: playerName,
       opponent_name: opponentName,
       result: resultMap[result] || result || 'ongoing',
       game_url: gameUrl || null,
-    });
+    };
+
+    const streamerId = this.streamerId;
+    if (streamerId) row.streamer_id = streamerId;
+
+    let { error } = await this.supabase.from('match_history').insert(row);
+
+    // Fallback: Supabase próprio com schema antigo (sem streamer_id).
+    if (error && this.isUnknownStreamerColumn(error)) {
+      const legacyRow = { ...row };
+      delete legacyRow.streamer_id;
+      const retry = await this.supabase.from('match_history').insert(legacyRow);
+      error = retry.error;
+    }
+
     if (error) {
       console.error('[Supabase] Erro ao registrar partida:', error.message);
       throw error;

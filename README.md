@@ -149,7 +149,8 @@ SUPABASE_ANON_KEY=sua_chave_anon
 
 # Mercado Pago / webhook VIP — opcional
 MP_ACCESS_TOKEN=
-MP_WEBHOOK_SECRET=
+# Obrigatório para o webhook: sem ele o endpoint responde 500 (fail-closed).
+MERCADO_PAGO_WEBHOOK_SECRET=
 MP_MIN_VALUE_CENTS=500
 ```
 

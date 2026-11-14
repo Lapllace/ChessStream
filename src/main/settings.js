@@ -1,4 +1,5 @@
 const { app, safeStorage } = require('electron');
+const crypto = require('crypto');
 const { default: Store } = require('electron-store');
 const { reconnectSupabase } = require('./database');
 const {
@@ -24,6 +25,7 @@ const SECRET_KEYS = [
   'livepixClientSecret',
   'livepixWebhookSecret',
   'licenseKey',
+  'streamerSecret',
 ];
 
 const schema = {
@@ -45,6 +47,7 @@ const schema = {
   language:          { type: 'string', default: 'pt' },
   // ── LivePix (SaaS) ──────────────────────────────────────────────
   streamerId:            { type: 'string', default: '' },
+  streamerSecret:        { type: 'string', default: '' },
   livepixClientId:       { type: 'string', default: '' },
   livepixClientSecret:   { type: 'string', default: '' },
   livepixWebhookSecret:  { type: 'string', default: '' },
@@ -56,6 +59,8 @@ const schema = {
   licenseCheckedAt:  { type: 'string', default: '' }, // ISO date
   licenseDaysLeft:   { type: 'number', default: 0 },
   licenseStatus:     { type: 'string', default: '' }, // active | expired | revoked
+  termsAccepted:     { type: 'boolean', default: false },
+  termsAcceptedVersion: { type: 'string', default: '' },
 };
 
 const store = new Store({
@@ -238,11 +243,33 @@ function getLivepixConfig() {
   const settings = getSettings();
   return {
     streamerId: String(settings.streamerId || ''),
+    streamerSecret: String(settings.streamerSecret || '').trim(),
     clientId: String(settings.livepixClientId || '').trim(),
     clientSecret: String(settings.livepixClientSecret || '').trim(),
     webhookSecret: String(settings.livepixWebhookSecret || ''),
     baseUrl: String(settings.livepixWebhookBaseUrl || DEFAULT_WEBHOOK_BASE_URL),
   };
+}
+
+/**
+ * Garante uma identidade de streamer estável para esta instalação.
+ *
+ * A fila é multi-tenant e as policies de INSERT/UPDATE em public.queue exigem
+ * streamer_id válido. Gerar o id no primeiro boot mantém o app funcionando
+ * mesmo para quem nunca configurou o LivePix (antes o id só nascia junto com
+ * as credenciais LivePix).
+ */
+function ensureStreamerIdentity() {
+  if (!String(getSettings().streamerSecret || '').trim()) {
+    store.set('streamerSecret', encryptSecret(crypto.randomBytes(32).toString('hex')));
+  }
+  const current = String(store.get('streamerId') || '').trim();
+  if (current) return current;
+
+  const generated = generateStreamerId();
+  store.set('streamerId', generated);
+  console.log(`[Settings] streamer_id gerado para esta instalação: ${generated}`);
+  return generated;
 }
 
 function applyToEnv() {
@@ -282,4 +309,5 @@ module.exports = {
   getLivepixConfig,
   saveSettings,
   applyToEnv,
+  ensureStreamerIdentity,
 };

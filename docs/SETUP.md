@@ -46,7 +46,7 @@ Preencha as variáveis de `.env.example` que correspondem às integrações util
 | `SUPABASE_URL` | URL do projeto Supabase. |
 | `SUPABASE_ANON_KEY` | Chave pública anon do Supabase. |
 | `MP_ACCESS_TOKEN` | Token do Mercado Pago para o webhook. |
-| `MP_WEBHOOK_SECRET` | Segredo reservado para validação do webhook; confira o estado da implementação antes de produção. |
+| `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo do HMAC `x-signature`; obrigatório no webhook (fail-closed). |
 | `MP_MIN_VALUE_CENTS` | Valor mínimo em centavos para pagamento VIP. |
 
 As configurações também podem ser feitas pelo painel, quando a opção estiver disponível. Nunca coloque valores reais no `.env.example`.

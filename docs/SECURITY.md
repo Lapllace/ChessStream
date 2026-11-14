@@ -17,7 +17,7 @@ Use `.env.example` somente como modelo, sem valores reais. Arquivos locais de cr
 
 ## Supabase e Row Level Security
 
-O schema versionado habilita RLS em tabelas principais, mas também concede operações a `anon` e `authenticated` e define policies de acesso público para algumas tabelas. RLS habilitado, por si só, não significa que os dados estejam restritos.
+O schema versionado habilita RLS em tabelas principais. `public.queue` e `public.match_history` não têm policy de `SELECT` para `anon`: a leitura passa pelas RPCs `get_streamer_queue()`/`get_streamer_history()`, que filtram por `streamer_id`. Ainda assim, `profiles` e `fila_vip` mantêm leitura pública e o `INSERT`/`UPDATE` da fila exige apenas um `streamer_id` com 16+ caracteres. RLS habilitado, por si só, não significa que os dados estejam restritos.
 
 **Antes de produção:**
 
@@ -29,13 +29,18 @@ O schema versionado habilita RLS em tabelas principais, mas também concede oper
 
 ## Webhook Mercado Pago
 
-A função em `vercel-webhook/api/webhook.js` consulta o pagamento na API do Mercado Pago e aceita apenas status `approved` e valores acima do mínimo. Porém, a variável `MP_WEBHOOK_SECRET` está declarada em `.env.example` e não aparece sendo validada no handler atual.
+A função em `vercel-webhook/api/webhook.js` consulta o pagamento na API do Mercado Pago e aceita apenas status `approved` e valores acima do mínimo.
+
+A validação é fail-closed:
+
+- Sem `MERCADO_PAGO_WEBHOOK_SECRET`, o endpoint responde `500` e não processa o pagamento.
+- Sem os headers `x-signature`/`x-request-id` ou com HMAC inválido (`crypto.timingSafeEqual`), responde `401`.
+- O parâmetro opcional `?streamer=<streamer_id>` grava o tenant em `fila_vip.streamer_id`; URLs antigas sem ele continuam aceitas.
 
 Antes de produção:
 
-- Implemente e teste a validação da assinatura/origem do webhook conforme o mecanismo oficial do Mercado Pago.
 - Valide o formato e os limites de `external_reference`.
-- Mantenha `MP_ACCESS_TOKEN` e `SUPABASE_SERVICE_KEY` somente como variáveis secretas do ambiente Vercel.
+- Mantenha `MP_ACCESS_TOKEN`, `MERCADO_PAGO_WEBHOOK_SECRET` e `SUPABASE_SERVICE_KEY` somente como variáveis secretas do ambiente Vercel.
 - Mantenha idempotência por `payment_id` (a tabela usa restrição UNIQUE).
 - Não registre tokens ou dados sensíveis nos logs.
 
@@ -50,7 +55,7 @@ Antes de produção:
 ## Checklist de release
 
 - [ ] Revisar políticas RLS e grants.
-- [ ] Implementar validação de assinatura do webhook.
+- [ ] Confirmar `MERCADO_PAGO_WEBHOOK_SECRET` na Vercel (validação fail-closed).
 - [ ] Confirmar ausência de segredos no Git e nos artefatos.
 - [ ] Revisar a lista `build.files` do electron-builder.
 - [ ] Testar logout, expiração de token e reconexão.

@@ -12,6 +12,8 @@
 -- 1. TABELAS
 -- ═══════════════════════════════════════════════════════════════
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
 -- Pagamentos VIP (fluxo legado Mercado Pago, recebido pelo webhook Vercel)
 CREATE TABLE IF NOT EXISTS public.fila_vip (
   id           BIGSERIAL PRIMARY KEY,
@@ -53,6 +55,7 @@ CREATE TABLE IF NOT EXISTS public.streamer_configs (
   livepix_client_id     TEXT NOT NULL,
   livepix_client_secret TEXT NOT NULL,
   webhook_secret        TEXT NOT NULL,
+  owner_secret_hash     TEXT,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -93,12 +96,21 @@ CREATE TABLE IF NOT EXISTS public.match_history (
 -- o LivePix reenvia o mesmo webhook por até 24h se não receber HTTP 200).
 ALTER TABLE public.fila_vip ADD COLUMN IF NOT EXISTS amount_cents INTEGER NOT NULL DEFAULT 0;
 
+-- Identidade do streamer dono do pagamento (webhook Mercado Pago/LivePix).
+-- Linhas antigas permanecem NULL e seguem o fluxo legado.
+ALTER TABLE public.fila_vip ADD COLUMN IF NOT EXISTS streamer_id TEXT;
+
 ALTER TABLE public.queue ADD COLUMN IF NOT EXISTS amount_cents INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.queue ADD COLUMN IF NOT EXISTS source_id TEXT;
+ALTER TABLE public.streamer_configs ADD COLUMN IF NOT EXISTS owner_secret_hash TEXT;
 
 -- Cada instalação do app possui um streamer_id próprio. O webhook grava a
 -- linha com esse id e o app escuta apenas os eventos da sua própria fila.
 ALTER TABLE public.queue ADD COLUMN IF NOT EXISTS streamer_id TEXT;
+
+-- Histórico também é multi-tenant: a leitura só acontece pela RPC
+-- get_streamer_history(), que filtra por este campo.
+ALTER TABLE public.match_history ADD COLUMN IF NOT EXISTS streamer_id TEXT;
 
 -- ── Licenças: migração do modelo antigo (HWID) para assinatura mensal ──
 ALTER TABLE public.licenses ADD COLUMN IF NOT EXISTS email TEXT;
@@ -174,51 +186,134 @@ REVOKE DELETE
   FROM anon, authenticated;
 
 -- Grava/atualiza as credenciais do streamer sem expor a tabela.
+DROP FUNCTION IF EXISTS public.register_streamer_config(TEXT, TEXT, TEXT, TEXT);
+
 CREATE OR REPLACE FUNCTION public.register_streamer_config(
   p_streamer_id           TEXT,
-  p_livepix_client_id     TEXT,
-  p_livepix_client_secret TEXT,
-  p_webhook_secret        TEXT
+  p_client_id             TEXT,
+  p_client_secret         TEXT,
+  p_streamer_secret       TEXT
 ) RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
 AS $$
+DECLARE
+  v_hash TEXT;
 BEGIN
   IF p_streamer_id IS NULL OR p_streamer_id !~ '^[A-Za-z0-9_-]{16,64}$' THEN
     RAISE EXCEPTION 'streamer_id inválido';
   END IF;
 
-  IF coalesce(trim(p_livepix_client_id), '') = ''
-     OR coalesce(trim(p_livepix_client_secret), '') = ''
-     OR coalesce(trim(p_webhook_secret), '') = '' THEN
+  IF coalesce(trim(p_client_id), '') = ''
+     OR coalesce(trim(p_client_secret), '') = '' THEN
     RAISE EXCEPTION 'credenciais LivePix incompletas';
   END IF;
+
+  IF p_streamer_secret IS NULL OR pg_catalog.length(pg_catalog.btrim(p_streamer_secret)) < 32 THEN
+    RAISE EXCEPTION 'streamer_secret inválido';
+  END IF;
+
+  v_hash := encode(extensions.digest(convert_to(pg_catalog.btrim(p_streamer_secret), 'UTF8'), 'sha256'), 'hex');
 
   INSERT INTO public.streamer_configs (
     streamer_id,
     livepix_client_id,
     livepix_client_secret,
     webhook_secret,
+    owner_secret_hash,
     updated_at
   ) VALUES (
     p_streamer_id,
-    trim(p_livepix_client_id),
-    trim(p_livepix_client_secret),
-    trim(p_webhook_secret),
+    trim(p_client_id),
+    trim(p_client_secret),
+    '',
+    v_hash,
     pg_catalog.now()
   )
   ON CONFLICT (streamer_id) DO UPDATE
     SET livepix_client_id     = excluded.livepix_client_id,
         livepix_client_secret = excluded.livepix_client_secret,
-        webhook_secret        = excluded.webhook_secret,
-        updated_at            = pg_catalog.now();
+        updated_at            = pg_catalog.now()
+    WHERE public.streamer_configs.owner_secret_hash IS NULL
+       OR public.streamer_configs.owner_secret_hash = v_hash;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Unauthorized: streamer_id pertence a outra instalação.';
+  END IF;
 END;
 $$;
 
 -- Executa apenas a função; nunca a tabela.
 REVOKE ALL ON FUNCTION public.register_streamer_config(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.register_streamer_config(TEXT, TEXT, TEXT, TEXT)
+  TO anon, authenticated;
+
+-- ── Leitura multi-tenant da fila/histórico ──────────────────────────────
+-- Todas as instalações compartilham a mesma anon key, então o RLS não
+-- consegue identificar o tenant pelo JWT. O SELECT direto em public.queue e
+-- public.match_history fica bloqueado (sem policy de SELECT) e a leitura
+-- acontece somente por estas funções SECURITY DEFINER, que exigem um
+-- streamer_id válido e devolvem apenas as linhas daquele streamer.
+
+DROP FUNCTION IF EXISTS public.get_streamer_queue(TEXT);
+
+CREATE OR REPLACE FUNCTION public.get_streamer_queue(p_streamer_id TEXT)
+RETURNS SETOF public.queue
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_streamer_id TEXT := pg_catalog.btrim(coalesce(p_streamer_id, ''));
+BEGIN
+  IF v_streamer_id = '' OR pg_catalog.length(v_streamer_id) < 16 THEN
+    RAISE EXCEPTION 'streamer_id inválido';
+  END IF;
+
+  RETURN QUERY
+  SELECT q.*
+    FROM public.queue AS q
+   WHERE q.streamer_id = v_streamer_id
+     AND q.status IN ('pending', 'playing')
+   ORDER BY q.position ASC NULLS LAST, q.created_at ASC;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_streamer_queue(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_streamer_queue(TEXT) TO anon, authenticated;
+
+DROP FUNCTION IF EXISTS public.get_streamer_history(TEXT, INT);
+
+CREATE OR REPLACE FUNCTION public.get_streamer_history(
+  p_streamer_id TEXT,
+  p_limit INT DEFAULT 50
+) RETURNS SETOF public.match_history
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_streamer_id TEXT := pg_catalog.btrim(coalesce(p_streamer_id, ''));
+  v_limit       INT  := GREATEST(1, LEAST(coalesce(p_limit, 50), 200));
+BEGIN
+  IF v_streamer_id = '' OR pg_catalog.length(v_streamer_id) < 16 THEN
+    RAISE EXCEPTION 'streamer_id inválido';
+  END IF;
+
+  RETURN QUERY
+  SELECT h.*
+    FROM public.match_history AS h
+   WHERE h.streamer_id = v_streamer_id
+   ORDER BY h.played_at DESC
+   LIMIT v_limit;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_streamer_history(TEXT, INT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_streamer_history(TEXT, INT)
   TO anon, authenticated;
 
 -- ── Licenças: ativação/validação exclusivamente via Vercel ──────────────
@@ -286,37 +381,47 @@ CREATE POLICY profiles_update_public
   USING (true)
   WITH CHECK (true);
 
--- queue: SELECT, INSERT, UPDATE (sem DELETE).
--- NOTA (SaaS): como todas as instalações usam a mesma anon key, o RLS não
--- consegue distinguir streamers. O isolamento da interface é feito pelo
--- filtro streamer_id no app/Realtime. Para isolamento forte no banco, troque
--- a anon key compartilhada por JWTs por streamer (Supabase Auth).
-CREATE POLICY queue_select_public
-  ON public.queue FOR SELECT TO anon, authenticated
-  USING (true);
-
+-- queue: INSERT e UPDATE (sem DELETE e sem SELECT direto).
+-- O SELECT é feito exclusivamente por get_streamer_queue(). Como a anon key é
+-- compartilhada, o RLS não distingue tenants pelo JWT; por isso toda linha
+-- gravada precisa carregar um streamer_id plausível.
 CREATE POLICY queue_insert_public
   ON public.queue FOR INSERT TO anon, authenticated
-  WITH CHECK (true);
+  WITH CHECK (
+    streamer_id IS NOT NULL
+    AND pg_catalog.length(pg_catalog.btrim(streamer_id)) >= 16
+  );
 
 CREATE POLICY queue_update_public
   ON public.queue FOR UPDATE TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
+  USING (
+    streamer_id IS NOT NULL
+    AND pg_catalog.length(pg_catalog.btrim(streamer_id)) >= 16
+  )
+  WITH CHECK (
+    streamer_id IS NOT NULL
+    AND pg_catalog.length(pg_catalog.btrim(streamer_id)) >= 16
+  );
 
--- match_history: SELECT, INSERT, UPDATE (sem DELETE).
-CREATE POLICY match_history_select_public
-  ON public.match_history FOR SELECT TO anon, authenticated
-  USING (true);
-
+-- match_history: INSERT e UPDATE (sem DELETE e sem SELECT direto).
+-- O histórico é lido por get_streamer_history().
 CREATE POLICY match_history_insert_public
   ON public.match_history FOR INSERT TO anon, authenticated
-  WITH CHECK (true);
+  WITH CHECK (
+    streamer_id IS NOT NULL
+    AND pg_catalog.length(pg_catalog.btrim(streamer_id)) >= 16
+  );
 
 CREATE POLICY match_history_update_public
   ON public.match_history FOR UPDATE TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
+  USING (
+    streamer_id IS NOT NULL
+    AND pg_catalog.length(pg_catalog.btrim(streamer_id)) >= 16
+  )
+  WITH CHECK (
+    streamer_id IS NOT NULL
+    AND pg_catalog.length(pg_catalog.btrim(streamer_id)) >= 16
+  );
 
 -- ─── Trigger ───────────────────────────────────────────────────
 
@@ -371,6 +476,7 @@ $$;
 CREATE INDEX IF NOT EXISTS idx_fila_vip_username  ON public.fila_vip(username);
 CREATE INDEX IF NOT EXISTS idx_fila_vip_processed ON public.fila_vip(processed);
 CREATE INDEX IF NOT EXISTS idx_fila_vip_paid_at   ON public.fila_vip(paid_at DESC);
+CREATE INDEX IF NOT EXISTS idx_fila_vip_streamer  ON public.fila_vip(streamer_id);
 
 -- UNIQUE necessário para a idempotência do webhook (ON CONFLICT / erro 23505).
 CREATE UNIQUE INDEX IF NOT EXISTS queue_source_id_key
@@ -387,6 +493,10 @@ CREATE INDEX IF NOT EXISTS queue_status_idx
 
 CREATE INDEX IF NOT EXISTS queue_created_at_idx
   ON public.queue (created_at);
+
+-- Histórico consultado por get_streamer_history() (tenant + ordem).
+CREATE INDEX IF NOT EXISTS match_history_streamer_played_idx
+  ON public.match_history (streamer_id, played_at DESC);
 
 -- ─── Sistema de Licenças (assinatura) ───────────────────────────────
 -- A PK já indexa license_key; o status é o filtro usado pelo painel/endpoint.

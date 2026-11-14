@@ -64,12 +64,12 @@ function hasLivepixCredentials({ clientId, clientSecret } = {}) {
  * Publica/atualiza as credenciais do streamer no Supabase via RPC.
  * A tabela streamer_configs não aceita INSERT/UPDATE direto pela anon key.
  */
-async function syncStreamerConfig({ streamerId, clientId, clientSecret, webhookSecret }) {
+async function syncStreamerConfig({ streamerId, streamerSecret, clientId, clientSecret, webhookSecret }) {
   if (!isValidStreamerId(streamerId)) {
     return { ok: false, error: 'streamer_id inválido.' };
   }
 
-  if (!hasLivepixCredentials({ clientId, clientSecret }) || !webhookSecret) {
+  if (!hasLivepixCredentials({ clientId, clientSecret }) || !webhookSecret || String(streamerSecret || '').trim().length < 32) {
     return { ok: false, error: 'Credenciais LivePix incompletas.' };
   }
 
@@ -81,9 +81,9 @@ async function syncStreamerConfig({ streamerId, clientId, clientSecret, webhookS
   try {
     const { error } = await supabase.rpc('register_streamer_config', {
       p_streamer_id: String(streamerId).trim(),
-      p_livepix_client_id: String(clientId).trim(),
-      p_livepix_client_secret: String(clientSecret).trim(),
-      p_webhook_secret: String(webhookSecret).trim(),
+      p_client_id: String(clientId).trim(),
+      p_client_secret: String(clientSecret).trim(),
+      p_streamer_secret: String(streamerSecret).trim(),
     });
 
     if (error) {

@@ -80,12 +80,15 @@ const manualNick     = $('manualNick');
 const manualAddBtn   = $('manualAddBtn');
 const manualFeedback = $('manualFeedback');
 let manualFeedbackTimer = null;
+let legalDocuments = null;
+let termsRequired = false;
 
 /* ── Init ────────────────────────────────────────────────────────────────── */
 async function init() {
   // Aplica o idioma salvo antes de montar os textos dinâmicos.
+  let settings = null;
   try {
-    const settings = await window.chessHub.settings.get();
+    settings = await window.chessHub.settings.get();
     applyLanguage(settings?.language || 'pt');
   } catch (error) {
     console.warn('[i18n] Não foi possível carregar o idioma salvo:', error);
@@ -100,7 +103,74 @@ async function init() {
   queue = await window.chessHub.getQueue();
   renderQueue();
   bindEvents();
+  await initializeTerms(settings);
 }
+
+async function initializeTerms(settings) {
+  if (!settings?.termsAccepted) {
+    await openTermsModal(true);
+  }
+}
+
+async function openTermsModal(required = false) {
+  const modal = $('terms-modal');
+  if (!modal) return;
+  termsRequired = required;
+  if (!legalDocuments) {
+    legalDocuments = await window.chessHub.terms.get();
+  }
+  const checkbox = $('terms-checkbox');
+  const checkRow = $('terms-check-row');
+  const acceptButton = $('btn-accept-terms');
+  const closeButton = $('btn-close-terms');
+  if (required) {
+    checkRow.style.display = 'flex';
+    acceptButton.style.display = '';
+    closeButton.style.display = 'none';
+    checkbox.checked = false;
+    acceptButton.disabled = true;
+  } else {
+    checkRow.style.display = 'none';
+    acceptButton.style.display = 'none';
+    closeButton.style.display = '';
+  }
+  selectTermsDocument('license');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeTermsModal() {
+  if (termsRequired) return;
+  const modal = $('terms-modal');
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function selectTermsDocument(documentName) {
+  const isPrivacy = documentName === 'privacy';
+  const documentEl = $('terms-document');
+  documentEl.textContent = legalDocuments?.[isPrivacy ? 'privacy' : 'license'] || '';
+  $('terms-title').textContent = isPrivacy ? 'Política de Privacidade' : 'Termos de Uso';
+  document.querySelectorAll('.terms-nav').forEach((button) => {
+    button.classList.toggle('active', button.dataset.termsDocument === (isPrivacy ? 'privacy' : 'license'));
+  });
+}
+
+$('terms-checkbox')?.addEventListener('change', (event) => {
+  $('btn-accept-terms').disabled = !event.target.checked;
+});
+$('btn-accept-terms')?.addEventListener('click', async () => {
+  if (!$('terms-checkbox').checked) return;
+  const result = await window.chessHub.terms.accept();
+  if (!result?.ok) return;
+  termsRequired = false;
+  $('terms-modal').classList.remove('open');
+  $('terms-modal').setAttribute('aria-hidden', 'true');
+});
+$('btn-close-terms')?.addEventListener('click', closeTermsModal);
+document.querySelectorAll('.terms-nav').forEach((button) => {
+  button.addEventListener('click', () => selectTermsDocument(button.dataset.termsDocument));
+});
 
 /* ── Render da fila ──────────────────────────────────────────────────────── */
 function renderQueue() {

@@ -348,6 +348,7 @@ async function loginGoogle() {
 }
 
 $('btn-google-login').addEventListener('click', loginGoogle);
+$('btn-open-terms').addEventListener('click', () => openTermsModal(false));
 window.chessHub.on('bots:restarted', () => console.log('[Settings] Bots reiniciados.'));
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {

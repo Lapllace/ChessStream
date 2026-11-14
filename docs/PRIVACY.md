@@ -49,6 +49,7 @@ credenciais.
 | Session ID do TikTok | Conectar ao chat ao vivo do TikTok | Cifrado via `safeStorage` |
 | Access token do Mercado Pago | Consultar pagamentos aprovados | Cifrado via `safeStorage` |
 | Client secret e webhook secret do LivePix | Validar webhooks de doação | Cifrado via `safeStorage` |
+| Segredo de propriedade do streamer | Autorizar alterações da instalação no cadastro central | Cifrado via `safeStorage` |
 | Chave de licença | Ativação e identificação da licença | Cifrado via `safeStorage` |
 | URL e anon key do Supabase | Conectar ao banco do próprio streamer | Texto simples (chave pública do projeto) |
 | Nick do streamer, preferências, layout do overlay, flags de fila | Funcionamento do app | Texto simples (não sensível) |
@@ -119,8 +120,11 @@ Supabase**, e o app grava/consulta:
 | `streamer_config` | identificação do streamer e configuração de webhook do LivePix | Receber notificações de doação |
 
 4.1. Esses dados são gravados no projeto Supabase **do streamer**, sob sua
-responsabilidade e conforme a política de privacidade que ele mantiver. A
-Tenebris não acessa esse banco.
+responsabilidade e conforme a política de privacidade que ele mantiver. Quando
+a operação utiliza a infraestrutura centralizada da Tenebris, aplica-se também
+o acesso administrativo controlado descrito na seção 9.3, limitado às
+finalidades de suporte, manutenção, auditoria de segurança e prevenção a
+fraudes.
 
 4.2. O app pode ler mensagens públicas de chat (Twitch, TikTok, YouTube) para
 identificar comandos de entrada na fila. Apenas o necessário para a funcionalidade
@@ -211,7 +215,14 @@ dele. O app não possui rotina automática de expurgo.
 atualizado, usar senha no dispositivo e não compartilhar tokens, secrets ou a
 chave de licença.
 
-9.3. Em caso de incidente de segurança que possa afetar dados pessoais sob nossa
+9.3. A equipe técnica da Tenebris (Licenciante) possui acesso administrativo
+controlado ao banco de dados centralizado (filas, histórico e configurações
+operacionais), estritamente para suporte técnico, manutenção de infraestrutura,
+auditoria de segurança e prevenção a fraudes. Esse acesso está sujeito a
+rigoroso dever de confidencialidade e não envolve uso ou compartilhamento
+comercial dos dados.
+
+9.4. Em caso de incidente de segurança que possa afetar dados pessoais sob nossa
 responsabilidade, comunicaremos os titulares e a ANPD conforme a LGPD.
 
 ---

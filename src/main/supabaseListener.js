@@ -2,6 +2,9 @@ const { getSupabaseClient } = require('./database');
 
 const CHANNEL_NAME = 'fila_vip';
 const SUBSCRIBE_TIMEOUT_MS = 15000;
+// Sem policy de SELECT em public.queue, o Realtime não entrega eventos de
+// fila para a anon key. O polling mantém o painel sincronizado com o webhook.
+const QUEUE_POLL_INTERVAL_MS = 15000;
 
 class SupabaseListener {
   constructor(queueManager, sendToRenderer, options = {}) {
@@ -11,6 +14,7 @@ class SupabaseListener {
     // reconnectSupabase() enquanto o app estava aberto.
     this.client = null;
     this.channel = null;
+    this.refreshTimer = null;
     // streamer_id da instalação. Vazio = modo legado (sem filtro).
     this.getStreamerId = typeof options.getStreamerId === 'function'
       ? options.getStreamerId
@@ -120,9 +124,34 @@ class SupabaseListener {
         }
       });
     });
+
+    // A RPC get_streamer_queue() é a fonte da verdade; o polling cobre os
+    // INSERTs feitos pelo webhook, que o Realtime não entrega sem SELECT.
+    this.startQueuePolling();
+  }
+
+  startQueuePolling() {
+    this.stopQueuePolling();
+    this.refreshTimer = setInterval(() => {
+      this.refreshQueue().catch(() => {});
+    }, QUEUE_POLL_INTERVAL_MS);
+
+    // Não impede o processo principal de encerrar.
+    if (typeof this.refreshTimer.unref === 'function') this.refreshTimer.unref();
+
+    this.refreshQueue().catch(() => {});
+  }
+
+  stopQueuePolling() {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
   }
 
   async stopInternal() {
+    this.stopQueuePolling();
+
     const channel = this.channel;
     this.channel = null;
     if (!channel || !this.client) return;

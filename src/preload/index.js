@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('chessHub', {
     googleLogin: () => ipcRenderer.invoke('google:login'),
     tiktokLogin: (username) => ipcRenderer.invoke('tiktok:login', username),
   },
+  terms: {
+    get: () => ipcRenderer.invoke('terms:get'),
+    accept: () => ipcRenderer.invoke('terms:accept'),
+  },
 
   // Licença (assinatura mensal, sem vínculo por máquina)
   license: {

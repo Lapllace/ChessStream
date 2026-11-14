@@ -9,7 +9,7 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
-const { getSettings, getPublicSettings, getLivepixConfig, saveSettings, applyToEnv } = require('./settings');
+const { getSettings, getPublicSettings, getLivepixConfig, saveSettings, applyToEnv, ensureStreamerIdentity } = require('./settings');
 const {
   buildWebhookUrl,
   hasLivepixCredentials,
@@ -645,6 +645,9 @@ app.whenReady().then(async () => {
   // descriptografa o token da Twitch) roda aqui e não no topo do módulo.
   applyToEnv();
 
+  // Identidade multi-tenant: precisa existir antes do QueueManager/listener.
+  ensureStreamerIdentity();
+
   queueManager = new QueueManager(sendToRenderer, () => getSettings().streamerId);
   chessMonitor  = new ChessMonitor(queueManager, sendToRenderer);
   setupAutoUpdater();
@@ -970,6 +973,27 @@ ipcMain.handle('settings:get', () => {
   });
   // Tokens permanecem no processo principal; o renderer só recebe flags.
   return getPublicSettings();
+});
+
+function readLegalDocument(name) {
+  const root = app.isPackaged ? process.resourcesPath : path.join(__dirname, '../..');
+  const filePath = path.join(root, name);
+  const packagedPrivacyPath = path.join(root, 'PRIVACY.md');
+  const resolvedPath = fs.existsSync(filePath) ? filePath
+    : name === path.join('docs', 'PRIVACY.md') && fs.existsSync(packagedPrivacyPath)
+      ? packagedPrivacyPath
+      : filePath;
+  return fs.readFileSync(resolvedPath, 'utf8');
+}
+
+ipcMain.handle('terms:get', () => ({
+  license: readLegalDocument('LICENSE.txt'),
+  privacy: readLegalDocument(path.join('docs', 'PRIVACY.md')),
+}));
+
+ipcMain.handle('terms:accept', () => {
+  saveSettings({ termsAccepted: true, termsAcceptedVersion: '1.0' });
+  return { ok: true, version: '1.0' };
 });
 
 ipcMain.handle('settings:save', async (_, partial) => {

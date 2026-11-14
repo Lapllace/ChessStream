@@ -238,6 +238,37 @@
         <button class="btn btn-ghost" id="btn-cancel-settings" type="button" data-i18n="cancel">Cancelar</button>
         <button class="btn btn-primary" id="btn-save-settings" type="button" data-i18n="save">Salvar</button>
       </div>
+      <button class="terms-link" id="btn-open-terms" type="button">Termos de Uso e Privacidade</button>
+    </div>
+  </div>
+
+  <div class="terms-modal" id="terms-modal" aria-hidden="true">
+    <div class="terms-dialog" role="dialog" aria-modal="true" aria-labelledby="terms-title">
+      <aside class="terms-sidebar">
+        <div class="terms-brand">♟ ChessStream</div>
+        <span class="terms-badge">v1.0 • LGPD</span>
+        <button class="terms-nav active" data-terms-document="license" type="button">Termos de Uso</button>
+        <button class="terms-nav" data-terms-document="privacy" type="button">Política de Privacidade</button>
+        <ul class="terms-highlights">
+          <li>Assinatura 30 dias sem vínculo de PC</li>
+          <li>Tokens cifrados localmente</li>
+          <li>Acesso técnico restrito a suporte</li>
+        </ul>
+      </aside>
+      <section class="terms-content">
+        <div class="terms-content-header">
+          <h2 id="terms-title">Termos de Uso</h2>
+          <button class="btn-icon" id="btn-close-terms" type="button" aria-label="Fechar">✕</button>
+        </div>
+        <pre class="terms-document" id="terms-document"></pre>
+        <div class="terms-footer">
+          <label class="terms-check" id="terms-check-row">
+            <input id="terms-checkbox" type="checkbox">
+            <span>Li e aceito os Termos e Condições</span>
+          </label>
+          <button class="btn btn-primary" id="btn-accept-terms" type="button" disabled>Continuar</button>
+        </div>
+      </section>
     </div>
   </div>
 
