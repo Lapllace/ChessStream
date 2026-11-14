@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="350" viewBox="0 0 1200 350" role="img" aria-labelledby="title desc">
+<title id="title">ChessStream Hub — The Underground Arena</title>
+<desc id="desc">An original pixel-art chess arena in a mysterious purple underground world, with a glowing heart and chess pieces.</desc>
+<defs>
+ <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#080711"/><stop offset=".55" stop-color="#1b1030"/><stop offset="1" stop-color="#070711"/></linearGradient>
+ <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#a855f7" stroke-opacity=".07"/></pattern>
+ <linearGradient id="portal" x2="0" y2="1"><stop stop-color="#c084fc" stop-opacity=".65"/><stop offset="1" stop-color="#6d28d9" stop-opacity=".02"/></linearGradient>
+</defs>
+<rect width="1200" height="350" rx="18" fill="url(#bg)"/><rect width="1200" height="350" rx="18" fill="url(#grid)"/>
+<g fill="#e9d5ff"><rect x="90" y="55" width="5" height="5"/><rect x="218" y="112" width="4" height="4"/><rect x="350" y="48" width="5" height="5"/><rect x="840" y="58" width="5" height="5"/><rect x="1010" y="112" width="4" height="4"/><rect x="1110" y="60" width="5" height="5"/></g>
+<path d="M0 260 80 210 140 252 210 198 280 260 360 215 430 270V350H0ZM1200 260 1120 210 1060 252 990 198 920 260 840 215 770 270V350H1200Z" fill="#100b1e"/>
+<!-- underground gate -->
+<path d="M420 300V177a180 180 0 0 1 360 0v123" fill="none" stroke="#4c1d95" stroke-width="20"/>
+<path d="M448 300V177a152 152 0 0 1 304 0v123" fill="url(#portal)" stroke="#a855f7" stroke-width="5"/>
+<path d="M478 300V177a122 122 0 0 1 244 0v123" fill="#10091f" stroke="#7e22ce" stroke-width="4"/>
+<!-- board floor -->
+<g transform="translate(500 270)" shape-rendering="crispEdges">
+ <rect width="200" height="32" fill="#1b1230" stroke="#a855f7" stroke-width="3"/>
+ <path d="M0 0h25v16H0zM50 0h25v16H50zM100 0h25v16h-25zM150 0h25v16h-25zM25 16h25v16H25zM75 16h25v16H75zM125 16h25v16h-25zM175 16h25v16h-25z" fill="#6d28d9" opacity=".8"/>
+</g>
+<!-- chess king sprite -->
+<g transform="translate(566 145)" shape-rendering="crispEdges">
+ <path d="M31 0h10v14h14v10H41v11h22v12H10V35h21V24H17V14h14z" fill="#f5d0fe" stroke="#a855f7" stroke-width="3"/>
+ <rect x="18" y="48" width="36" height="12" fill="#c084fc"/><rect x="12" y="60" width="48" height="10" fill="#7e22ce"/><rect x="6" y="70" width="60" height="12" fill="#4c1d95"/>
+</g>
+<!-- heart pixel -->
+<g transform="translate(955 80)" shape-rendering="crispEdges" fill="#fb7185"><rect x="0" y="8" width="12" height="12"/><rect x="12" y="0" width="12" height="20"/><rect x="24" y="8" width="12" height="12"/><rect x="0" y="20" width="36" height="12"/><rect x="12" y="32" width="12" height="12"/></g>
+<g font-family="Courier New,monospace"><text x="64" y="68" fill="#c084fc" font-size="16" letter-spacing="4">STREAMER'S CHESS ARENA // SAVE POINT</text><text x="64" y="153" fill="#fff7ed" font-size="62" font-weight="bold" letter-spacing="1">CHESSSTREAM</text><text x="68" y="198" fill="#e9d5ff" font-size="26" font-weight="bold">HUB</text><text x="68" y="232" fill="#a78bfa" font-size="16" letter-spacing="2">ONE CHAT. ONE QUEUE. YOUR NEXT CHALLENGER.</text></g>
+<rect x="64" y="278" width="1072" height="45" rx="4" fill="#080711" stroke="#6d28d9" stroke-width="2"/>
+<g font-family="Courier New,monospace" font-size="15" font-weight="bold"><text x="88" y="306" fill="#fb7185">♥ FIGHT</text><text x="245" y="306" fill="#c084fc">♟ ACT</text><text x="395" y="306" fill="#e9d5ff">⚡ ITEM</text><text x="570" y="306" fill="#a3e635">MERCY</text><text x="790" y="306" fill="#f9fafb">THREE COMMUNITIES</text><text x="1010" y="306" fill="#c084fc">ONE QUEUE</text></g>
+<rect x="1" y="1" width="1198" height="348" rx="17" fill="none" stroke="#8b5cf6" stroke-opacity=".7" stroke-width="2"/>
+</svg>
