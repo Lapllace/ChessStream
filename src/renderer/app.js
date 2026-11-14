@@ -368,6 +368,16 @@ window.chessHub.on('queue:vip-alert', ({ username, chessNick, amount_cents }) =>
   playVipSound();
 });
 
+// Aviso de licença prestes a expirar (enviado no boot e na revalidação).
+window.chessHub.on('license:warning', ({ daysLeft, expiresAt }) => {
+  const banner = document.getElementById('licenseBanner');
+  if (!banner) return;
+  banner.textContent = daysLeft <= 1
+    ? '⚠ Licença expira HOJE! Renove agora.'
+    : `⚠ Licença expira em ${daysLeft} dia(s). Renove para continuar.`;
+  banner.style.display = 'block';
+});
+
 window.chessHub.on('chat:status', ({ platform, connected }) => {
   const statusIds = {
     twitch: 'statusTwitch',

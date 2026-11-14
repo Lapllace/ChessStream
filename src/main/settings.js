@@ -49,12 +49,13 @@ const schema = {
   livepixClientSecret:   { type: 'string', default: '' },
   livepixWebhookSecret:  { type: 'string', default: '' },
   livepixWebhookBaseUrl: { type: 'string', default: DEFAULT_WEBHOOK_BASE_URL },
-  // ── Licença comercial ───────────────────────────────────────────
-  licenseKey:          { type: 'string', default: '' },
-  licenseHwid:         { type: 'string', default: '' },
-  licenseStatus:       { type: 'string', default: '' },
-  licenseLastValidAt:  { type: 'string', default: '' },
-  licenseExpiresAt:    { type: 'string', default: '' },
+  // ── Licença (assinatura mensal, sem vínculo por máquina) ────────
+  // licenseKey é criptografada via safeStorage (está em SECRET_KEYS).
+  licenseKey:        { type: 'string', default: '' },
+  licenseExpiresAt:  { type: 'string', default: '' }, // ISO date
+  licenseCheckedAt:  { type: 'string', default: '' }, // ISO date
+  licenseDaysLeft:   { type: 'number', default: 0 },
+  licenseStatus:     { type: 'string', default: '' }, // active | expired | revoked
 };
 
 const store = new Store({

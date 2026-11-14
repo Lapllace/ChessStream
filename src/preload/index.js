@@ -23,13 +23,13 @@ contextBridge.exposeInMainWorld('chessHub', {
     tiktokLogin: (username) => ipcRenderer.invoke('tiktok:login', username),
   },
 
-  // Licença comercial (HWID + chave)
+  // Licença (assinatura mensal, sem vínculo por máquina)
   license: {
-    check:    (options)   => ipcRenderer.invoke('license:check', options),
-    activate: (key)       => ipcRenderer.invoke('license:activate', key),
-    getHwid:  ()          => ipcRenderer.invoke('license:get-hwid'),
-    status:   ()          => ipcRenderer.invoke('license:status'),
-    purchase: ()          => ipcRenderer.invoke('license:purchase'),
+    activate: (key) => ipcRenderer.invoke('license:activate', key),
+    get:      ()    => ipcRenderer.invoke('license:get'),
+    openApp:  ()    => ipcRenderer.invoke('license:open-app'),
+    // Compatibilidade com o badge do modal de Configurações.
+    status:   ()    => ipcRenderer.invoke('license:status'),
   },
 
   // Eventos do main → renderer

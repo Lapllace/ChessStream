@@ -57,17 +57,19 @@ CREATE TABLE IF NOT EXISTS public.streamer_configs (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Licenças comerciais (HWID + chave de ativação). A anon key nunca lê nem
--- escreve direto: a validação/ativação acontece pela função
--- verify_and_activate_license() definida na seção de segurança.
+-- Licenças comerciais (assinatura mensal, sem vínculo por máquina).
+-- O app NÃO acessa esta tabela: a ativação/validação passa pela função
+-- Vercel /api/license, que usa a service_role. Assim a anon key nunca
+-- consegue listar, inserir ou alterar chaves.
 CREATE TABLE IF NOT EXISTS public.licenses (
-  license_key    TEXT PRIMARY KEY,
-  customer_email TEXT,
-  hwid           TEXT,
-  status         TEXT NOT NULL DEFAULT 'active'
-    CHECK (status IN ('active', 'revoked', 'expired')),
-  expires_at     TIMESTAMPTZ,
-  activated_at   TIMESTAMPTZ,
+  license_key    TEXT PRIMARY KEY,             -- CSH-XXXX-XXXX-XXXX
+  email          TEXT,                         -- e-mail do comprador
+  status         TEXT NOT NULL DEFAULT 'active' -- active | expired | revoked
+    CHECK (status IN ('active', 'expired', 'revoked')),
+  activated_at   TIMESTAMPTZ,                  -- primeiro uso
+  expires_at     TIMESTAMPTZ,                  -- activated_at + 30 dias
+  last_check_at  TIMESTAMPTZ,                  -- última validação online
+  notes          TEXT,                         -- observações do dono
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -97,6 +99,34 @@ ALTER TABLE public.queue ADD COLUMN IF NOT EXISTS source_id TEXT;
 -- Cada instalação do app possui um streamer_id próprio. O webhook grava a
 -- linha com esse id e o app escuta apenas os eventos da sua própria fila.
 ALTER TABLE public.queue ADD COLUMN IF NOT EXISTS streamer_id TEXT;
+
+-- ── Licenças: migração do modelo antigo (HWID) para assinatura mensal ──
+ALTER TABLE public.licenses ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.licenses ADD COLUMN IF NOT EXISTS last_check_at TIMESTAMPTZ;
+ALTER TABLE public.licenses ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- Instalações antigas guardavam o e-mail em customer_email.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'licenses'
+      AND column_name  = 'customer_email'
+  ) THEN
+    EXECUTE 'UPDATE public.licenses
+                SET email = COALESCE(email, customer_email)
+              WHERE email IS NULL';
+  END IF;
+END
+$$;
+
+-- Chaves antigas ativadas sem prazo passam a valer 30 dias a partir da
+-- ativação, preservando quem já tinha licença antes da migração.
+UPDATE public.licenses
+   SET expires_at = activated_at + INTERVAL '30 days'
+ WHERE expires_at IS NULL
+   AND activated_at IS NOT NULL;
 
 -- ═══════════════════════════════════════════════════════════════
 -- 3. SEGURANÇA: RLS, GRANTS, FUNÇÕES E POLICIES
@@ -133,9 +163,10 @@ GRANT SELECT, INSERT, UPDATE
 -- acesso direto: a escrita ocorre só pela função SECURITY DEFINER abaixo.
 GRANT SELECT ON public.streamer_configs TO service_role;
 
--- Suporte/backoffice: service_role consulta licenças (ex.: painel do vendor).
--- anon/authenticated continuam sem qualquer acesso direto à tabela.
-GRANT SELECT ON public.licenses TO service_role;
+-- Suporte/backoffice e a função Vercel /api/license usam a service_role.
+-- anon/authenticated continuam sem qualquer acesso direto à tabela: expor
+-- SELECT permitiria listar todas as chaves e revendê-las.
+GRANT SELECT, INSERT, UPDATE ON public.licenses TO service_role;
 
 -- Reforço explícito: nenhuma tabela concede DELETE a anon/authenticated.
 REVOKE DELETE
@@ -190,129 +221,12 @@ REVOKE ALL ON FUNCTION public.register_streamer_config(TEXT, TEXT, TEXT, TEXT) F
 GRANT EXECUTE ON FUNCTION public.register_streamer_config(TEXT, TEXT, TEXT, TEXT)
   TO anon, authenticated;
 
--- Valida a chave e vincula o HWID na primeira ativação. SECURITY DEFINER para
--- que a anon key consiga operar sem SELECT/INSERT/UPDATE na tabela licenses.
--- Retorna JSONB (o PostgREST entrega como objeto para o app).
-CREATE OR REPLACE FUNCTION public.verify_and_activate_license(
-  p_license_key TEXT,
-  p_hwid        TEXT
-) RETURNS JSONB
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  v_key     TEXT := pg_catalog.upper(pg_catalog.btrim(COALESCE(p_license_key, '')));
-  v_hwid    TEXT := pg_catalog.btrim(COALESCE(p_hwid, ''));
-  v_license public.licenses%ROWTYPE;
-BEGIN
-  IF v_key = '' THEN
-    RETURN pg_catalog.jsonb_build_object(
-      'valid', false,
-      'reason', 'invalid_key',
-      'message', 'Informe uma chave de licença.'
-    );
-  END IF;
-
-  IF v_hwid = '' THEN
-    RETURN pg_catalog.jsonb_build_object(
-      'valid', false,
-      'reason', 'invalid_hwid',
-      'message', 'Não foi possível identificar este computador.'
-    );
-  END IF;
-
-  SELECT * INTO v_license
-    FROM public.licenses
-   WHERE license_key = v_key;
-
-  IF NOT FOUND THEN
-    RETURN pg_catalog.jsonb_build_object(
-      'valid', false,
-      'reason', 'not_found',
-      'message', 'Chave de licença não encontrada.'
-    );
-  END IF;
-
-  IF v_license.status = 'revoked' THEN
-    RETURN pg_catalog.jsonb_build_object(
-      'valid', false,
-      'reason', 'revoked',
-      'message', 'Esta licença foi revogada. Fale com o suporte.'
-    );
-  END IF;
-
-  IF v_license.status = 'expired'
-     OR (v_license.expires_at IS NOT NULL AND v_license.expires_at <= pg_catalog.now()) THEN
-    RETURN pg_catalog.jsonb_build_object(
-      'valid', false,
-      'reason', 'expired',
-      'message', 'Esta licença expirou. Renove para continuar usando.'
-    );
-  END IF;
-
-  IF v_license.status <> 'active' THEN
-    RETURN pg_catalog.jsonb_build_object(
-      'valid', false,
-      'reason', 'inactive',
-      'message', 'Esta licença não está ativa.'
-    );
-  END IF;
-
-  -- Primeira ativação: vincula a chave ao computador atual.
-  -- O UPDATE condicional (hwid IS NULL) evita que duas máquinas ativem a
-  -- mesma chave ao mesmo tempo: a segunda perde a corrida e cai no mismatch.
-  IF v_license.hwid IS NULL THEN
-    UPDATE public.licenses
-       SET hwid         = v_hwid,
-           activated_at = pg_catalog.now()
-     WHERE license_key = v_key
-       AND hwid IS NULL;
-
-    IF FOUND THEN
-      RETURN pg_catalog.jsonb_build_object(
-        'valid', true,
-        'reason', 'activated',
-        'message', 'Licença ativada com sucesso!',
-        'expires_at', v_license.expires_at
-      );
-    END IF;
-
-    SELECT * INTO v_license
-      FROM public.licenses
-     WHERE license_key = v_key;
-
-    IF v_license.hwid = v_hwid THEN
-      RETURN pg_catalog.jsonb_build_object(
-        'valid', true,
-        'reason', 'active',
-        'message', 'Licença válida.',
-        'expires_at', v_license.expires_at
-      );
-    END IF;
-  END IF;
-
-  IF v_license.hwid = v_hwid THEN
-    RETURN pg_catalog.jsonb_build_object(
-      'valid', true,
-      'reason', 'active',
-      'message', 'Licença válida.',
-      'expires_at', v_license.expires_at
-    );
-  END IF;
-
-  RETURN pg_catalog.jsonb_build_object(
-    'valid', false,
-    'reason', 'hwid_mismatch',
-    'message', 'Esta chave já está vinculada a outro computador.'
-  );
-END;
-$$;
-
--- Executa apenas a função; nunca a tabela.
-REVOKE ALL ON FUNCTION public.verify_and_activate_license(TEXT, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.verify_and_activate_license(TEXT, TEXT)
-  TO anon, authenticated;
+-- ── Licenças: ativação/validação exclusivamente via Vercel ──────────────
+-- A função antiga vinculava a chave ao HWID e foi removida: além de não ser
+-- mais usada pelo app, ela permitia ativar chaves sem definir o prazo de 30
+-- dias. A ativação agora é feita por vercel-webhook/api/license.js com a
+-- service_role, que nunca é exposta ao cliente.
+DROP FUNCTION IF EXISTS public.verify_and_activate_license(TEXT, TEXT);
 
 -- Atualiza updated_at automaticamente
 CREATE OR REPLACE FUNCTION public.set_queue_updated_at()
@@ -474,6 +388,10 @@ CREATE INDEX IF NOT EXISTS queue_status_idx
 CREATE INDEX IF NOT EXISTS queue_created_at_idx
   ON public.queue (created_at);
 
--- Suporte: localizar a licença pelo HWID informado pelo cliente.
-CREATE INDEX IF NOT EXISTS licenses_hwid_idx
-  ON public.licenses (hwid);
+-- ─── Sistema de Licenças (assinatura) ───────────────────────────────
+-- A PK já indexa license_key; o status é o filtro usado pelo painel/endpoint.
+CREATE INDEX IF NOT EXISTS idx_licenses_status ON public.licenses (status);
+
+-- O modelo de assinatura não vincula licença a máquina: remove o índice de
+-- HWID herdado de instalações antigas.
+DROP INDEX IF EXISTS public.licenses_hwid_idx;

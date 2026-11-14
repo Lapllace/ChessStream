@@ -15,14 +15,6 @@ const {
   hasLivepixCredentials,
   syncStreamerConfig,
 } = require('./livepixConfig');
-const {
-  LICENSE_PURCHASE_URL,
-  checkLicense,
-  activateLicense,
-  getHardwareId,
-  getShortHwid,
-  getLocalLicenseStatus,
-} = require('./licenseManager');
 
 // Servidor do overlay OBS
 let overlayServer = null;
@@ -102,9 +94,10 @@ let twitchBot;
 let tiktokBot;
 let youtubeBot;
 let supabaseListener;
-let licenseState = null;
-let licenseCheckPromise = null;
-let servicesStarted = false;
+let activationWindow = null;
+// Último resultado da validação. `allowed` é o gate único de bots/serviços.
+let licenseStatus = null;
+let licenseWatcherTimer = null;
 
 const YOUTUBE_SCOPES = [
   'https://www.googleapis.com/auth/youtube.readonly',
@@ -112,6 +105,14 @@ const YOUTUBE_SCOPES = [
 ];
 const YOUTUBE_REDIRECT_URI = 'http://localhost:42813/oauth2callback';
 const LOGIN_TIMEOUT_MS = 3 * 60 * 1000;
+
+// ── Licença (assinatura mensal) ───────────────────────────────────────────────
+const LICENSE_API_URL = process.env.LICENSE_API_URL
+  || 'https://chessstream.vercel.app/api/license';
+const LICENSE_CHECK_INTERVAL_DAYS = 3;
+const LICENSE_WARN_DAYS = 7;
+const LICENSE_DAY_MS = 24 * 60 * 60 * 1000;
+const LICENSE_KEY_PATTERN = /^CSH-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const GOOGLE_AUTH_SUCCESS_HTML = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -290,8 +291,288 @@ function loadGoogleCredentials() {
   }
 }
 
+// ── Licença (ativação/validação via Vercel) ───────────────────────────────────
+/** Aceita a chave colada sem hífens e devolve o formato canônico. */
+function normalizeLicenseKey(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  const compact = raw.replace(/[^A-Z0-9]/g, '');
+
+  if (compact.length === 15 && compact.startsWith('CSH')) {
+    return `CSH-${compact.slice(3, 7)}-${compact.slice(7, 11)}-${compact.slice(11, 15)}`;
+  }
+
+  return raw;
+}
+
+function maskLicenseKey(value) {
+  const key = String(value || '').trim();
+  if (!key) return '';
+  return key.length <= 8 ? key : `${key.slice(0, 4)}-****-****-${key.slice(-4)}`;
+}
+
+/** Consulta o endpoint. `null` significa offline: o cache local decide. */
+async function checkLicense(key) {
+  try {
+    const response = await fetch(LICENSE_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return await response.json();
+  } catch (err) {
+    console.warn('[Licença] Verificação offline — usando cache local.', err?.message || '');
+    return null; // null = modo offline, usar cache
+  }
+}
+
+async function activateLicense(key) {
+  try {
+    const response = await fetch(LICENSE_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, action: 'activate' }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return await response.json();
+  } catch (err) {
+    console.warn('[Licença] Falha ao ativar:', err?.message || '');
+    return { error: 'Sem conexão com o servidor de licenças.' };
+  }
+}
+
+/**
+ * Atualiza somente o cache (sem tocar na chave). A chave em si só é gravada
+ * após uma ativação bem-sucedida e sai cifrada pelo safeStorage, pois está
+ * em SECRET_KEYS.
+ */
+function saveLicenseCache(result) {
+  const settings = getSettings();
+  const daysLeft = Number(result?.daysLeft);
+  const expiresAt = result?.expiresAt ? new Date(result.expiresAt) : null;
+
+  saveSettings({
+    licenseExpiresAt: expiresAt && !Number.isNaN(expiresAt.getTime())
+      ? expiresAt.toISOString()
+      : settings.licenseExpiresAt,
+    licenseCheckedAt: new Date().toISOString(),
+    licenseDaysLeft: Number.isFinite(daysLeft) ? Math.max(0, daysLeft) : 0,
+    licenseStatus: result?.valid ? 'active' : (settings.licenseStatus || ''),
+  });
+}
+
+function persistActivatedLicense(key, result) {
+  const daysLeft = Number(result?.daysLeft);
+  const expiresAt = result?.expiresAt ? new Date(result.expiresAt) : null;
+
+  saveSettings({
+    licenseKey: key,
+    licenseExpiresAt: expiresAt && !Number.isNaN(expiresAt.getTime())
+      ? expiresAt.toISOString()
+      : '',
+    licenseCheckedAt: new Date().toISOString(),
+    licenseDaysLeft: Number.isFinite(daysLeft) ? Math.max(0, daysLeft) : 0,
+    licenseStatus: 'active',
+  });
+}
+
+/**
+ * Decide se o app pode abrir. Consulta a rede no máximo a cada 3 dias; fora
+ * disso, usa o cache local. Sem conexão, aceita o cache até `licenseExpiresAt`
+ * e bloqueia quando ele também expirou.
+ */
+async function validateLicenseOnBoot() {
+  const settings = getSettings();
+  const { licenseKey, licenseExpiresAt, licenseCheckedAt, licenseDaysLeft } = settings;
+
+  if (!licenseKey) {
+    return { allowed: false, reason: 'no_license', daysLeft: 0 };
+  }
+
+  const now = new Date();
+  const cachedExpiry = licenseExpiresAt ? new Date(licenseExpiresAt) : null;
+  const cacheValid = cachedExpiry
+    && !Number.isNaN(cachedExpiry.getTime())
+    && cachedExpiry > now;
+
+  const lastCheck = licenseCheckedAt ? new Date(licenseCheckedAt) : null;
+  const hasValidLastCheck = lastCheck && !Number.isNaN(lastCheck.getTime());
+  const daysSinceCheck = hasValidLastCheck
+    ? (now.getTime() - lastCheck.getTime()) / LICENSE_DAY_MS
+    : Infinity;
+
+  if (daysSinceCheck < LICENSE_CHECK_INTERVAL_DAYS) {
+    return cacheValid
+      ? { allowed: true, daysLeft: Number(licenseDaysLeft) || 0, expiresAt: licenseExpiresAt }
+      : { allowed: false, reason: 'expired', message: 'Licença expirada. Renove para continuar.' };
+  }
+
+  const result = await checkLicense(licenseKey);
+
+  if (result === null) {
+    if (cacheValid) {
+      console.warn('[Licença] Offline — usando cache. Expira em:', licenseExpiresAt);
+      return {
+        allowed: true,
+        daysLeft: Number(licenseDaysLeft) || 0,
+        expiresAt: licenseExpiresAt,
+        offline: true,
+        reason: 'offline_cache',
+      };
+    }
+    return {
+      allowed: false,
+      reason: 'expired_offline',
+      message: 'Sem conexão e sua licença não pôde ser validada. Conecte-se para renovar.',
+    };
+  }
+
+  if (!result.valid) {
+    const reason = result.needsActivation
+      ? 'not_activated'
+      : result.expired
+        ? 'expired'
+        : result.revoked
+          ? 'revoked'
+          : 'invalid';
+
+    return {
+      allowed: false,
+      reason,
+      message: result.message || result.error || 'Licença inválida.',
+    };
+  }
+
+  saveLicenseCache(result);
+
+  return {
+    allowed: true,
+    daysLeft: Number(result.daysLeft) || 0,
+    expiresAt: result.expiresAt,
+    message: result.message,
+  };
+}
+
+/**
+ * Janela dedicada de ativação. A janela principal nem é criada enquanto a
+ * licença não for válida, evitando que os bots/overlay subam por engano.
+ */
+function createActivationWindow(reason = 'no_license') {
+  if (activationWindow && !activationWindow.isDestroyed()) {
+    activationWindow.focus();
+    return activationWindow;
+  }
+
+  activationWindow = new BrowserWindow({
+    width: 520,
+    height: 560,
+    resizable: false,
+    autoHideMenuBar: true,
+    title: 'ChessStream Hub — Ativação',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  activationWindow.removeMenu();
+  activationWindow.on('closed', () => {
+    activationWindow = null;
+  });
+
+  // loadFile com `query` já monta a URL final (?reason=...). Chamar loadFile
+  // e loadURL em seguida faria a tela carregar duas vezes.
+  activationWindow.loadFile(
+    path.join(__dirname, '../renderer/activation.html'),
+    { query: { reason } }
+  );
+
+  return activationWindow;
+}
+
+/** Envia o banner quando faltam <= 7 dias, esperando o renderer carregar. */
+function notifyLicenseWarning(status) {
+  if (!status?.allowed) return;
+
+  const daysLeft = Number(status.daysLeft);
+  if (!Number.isFinite(daysLeft) || daysLeft > LICENSE_WARN_DAYS) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  const payload = {
+    daysLeft: Math.max(0, daysLeft),
+    expiresAt: status.expiresAt || getSettings().licenseExpiresAt,
+  };
+  const send = () => sendToRenderer('license:warning', payload);
+
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+}
+
+/**
+ * Revalida em segundo plano. O intervalo é curto (6h), mas a rede só é
+ * consultada quando `licenseCheckedAt` tem mais de 3 dias — então continua
+ * silencioso e cobre sessões longas sem reiniciar o app.
+ */
+function startLicenseWatcher() {
+  if (licenseWatcherTimer) return;
+
+  licenseWatcherTimer = setInterval(async () => {
+    try {
+      const status = await validateLicenseOnBoot();
+      licenseStatus = status;
+
+      if (!status.allowed) {
+        console.warn('[Licença] Revalidação falhou:', status.reason, '-', status.message || '');
+        sendToRenderer('license:expired', status);
+        return;
+      }
+
+      notifyLicenseWarning(status);
+    } catch (error) {
+      console.warn('[Licença] Erro na revalidação silenciosa:', error?.message || error);
+    }
+  }, 6 * 60 * 60 * 1000);
+
+  licenseWatcherTimer.unref?.();
+}
+
+/** Chamado pela tela de ativação depois do sucesso. */
+async function openMainApp() {
+  const status = licenseStatus?.allowed ? licenseStatus : await validateLicenseOnBoot();
+  licenseStatus = status;
+
+  if (!status.allowed) {
+    return { ok: false, error: status.message || 'Licença inválida ou expirada.' };
+  }
+
+  // Cria a janela principal ANTES de fechar a de ativação: assim
+  // `window-all-closed` nunca dispara no meio da troca.
+  createWindow();
+  startOverlayServer();
+  startLicenseWatcher();
+
+  await restartBots();
+
+  if (activationWindow && !activationWindow.isDestroyed()) {
+    activationWindow.close();
+  }
+
+  notifyLicenseWarning(status);
+  return { ok: true };
+}
+
 // ── Janela principal ──────────────────────────────────────────────────────────
 function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return mainWindow;
+  }
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -305,11 +586,17 @@ function createWindow() {
     },
   });
 
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
   }
+
+  return mainWindow;
 }
 
 // ── Auto-updater ──────────────────────────────────────────────────────────────
@@ -360,67 +647,28 @@ app.whenReady().then(async () => {
 
   queueManager = new QueueManager(sendToRenderer, () => getSettings().streamerId);
   chessMonitor  = new ChessMonitor(queueManager, sendToRenderer);
-  createWindow();
-  startOverlayServer();
   setupAutoUpdater();
 
-  // A licença é verificada ANTES de qualquer bot/monitor. A janela já está
-  // aberta para o modal de ativação aparecer imediatamente.
-  const license = await evaluateLicense();
-  if (license.valid) {
-    await ensureServicesStarted();
-  } else {
-    console.warn('[Licença] App bloqueado:', license.reason, '-', license.message);
+  // A licença é validada ANTES de criar a janela principal ou iniciar
+  // qualquer bot/monitor. Sem licença, só a tela de ativação aparece.
+  const status = await validateLicenseOnBoot();
+  licenseStatus = status;
+
+  if (!status.allowed) {
+    console.warn('[Licença] App bloqueado:', status.reason, '-', status.message || '');
+    createActivationWindow(status.reason);
+    return;
   }
+
+  createWindow();
+  startOverlayServer();
+  startLicenseWatcher();
+  notifyLicenseWarning(status);
+
+  await restartBots();
 }).catch((error) => {
   console.error('[App] Erro ao iniciar o Electron:', error);
 });
-
-/**
- * Resolve a licença uma única vez por boot e compartilha a promise com os
- * handlers IPC (o renderer pede a mesma verificação logo que carrega).
- */
-async function evaluateLicense({ force = false } = {}) {
-  if (!force && licenseState) return licenseState;
-
-  if (!licenseCheckPromise) {
-    licenseCheckPromise = checkLicense()
-      .then((result) => {
-        licenseState = result;
-        sendToRenderer('license:status', result);
-        return result;
-      })
-      .catch((error) => {
-        const failure = {
-          valid: false,
-          reason: 'check_failed',
-          message: error?.message || 'Não foi possível verificar a licença.',
-        };
-        licenseState = failure;
-        sendToRenderer('license:status', failure);
-        return failure;
-      })
-      .finally(() => {
-        licenseCheckPromise = null;
-      });
-  }
-
-  return licenseCheckPromise;
-}
-
-/** Inicia bots/monitor apenas quando a licença já foi validada. */
-async function ensureServicesStarted() {
-  if (servicesStarted) return;
-
-  servicesStarted = true;
-  try {
-    await restartBots();
-  } catch (error) {
-    servicesStarted = false;
-    console.error('[Licença] Falha ao iniciar os serviços:', error?.message || error);
-    throw error;
-  }
-}
 
 // Serializa reinícios. Chamadas concorrentes (salvar config enquanto um login
 // termina, por exemplo) criavam dois canais Realtime com o mesmo tópico e
@@ -435,7 +683,7 @@ function restartBots() {
 
 async function restartBotsInternal() {
   // Sem licença válida nenhum bot conecta (nem por settings:save/login).
-  if (!licenseState?.valid) {
+  if (!licenseStatus?.allowed) {
     console.warn('[Licença] Bots não iniciados: licença inválida.');
     sendToRenderer('bots:restarted', { ok: false, reason: 'license_required' });
     return;
@@ -523,6 +771,10 @@ async function restartBotsInternal() {
 }
 
 app.on('window-all-closed', async () => {
+  if (licenseWatcherTimer) {
+    clearInterval(licenseWatcherTimer);
+    licenseWatcherTimer = null;
+  }
   chessMonitor?.stop();
   await twitchBot?.disconnect();
   tiktokBot?.stopMonitoring();
@@ -748,50 +1000,105 @@ ipcMain.handle('settings:save', async (_, partial) => {
   return { ok: true, livepix };
 });
 
-// ── IPC: licença comercial ───────────────────────────────────────────────────
-ipcMain.handle('license:check', async (_, options) => {
-  // Sem `force`, reaproveita o estado do boot. O botão "Verificar novamente"
-  // do modal usa force=true para tentar de novo após erro de rede.
-  const result = await evaluateLicense({ force: Boolean(options?.force) });
-  if (result.valid) {
-    await ensureServicesStarted().catch((error) => {
-      console.error('[Licença] Serviços não iniciaram:', error?.message || error);
-    });
-  }
-  return result;
-});
-
-ipcMain.handle('license:activate', async (_, licenseKey) => {
-  const result = await activateLicense(licenseKey);
-  licenseState = result;
-  sendToRenderer('license:status', result);
-
-  // Não aguarda os bots: o renderer destrava a interface imediatamente e o
-  // restart roda em segundo plano (o modal não fica preso em "Ativando...").
-  if (result.valid) {
-    ensureServicesStarted().catch((error) => {
-      console.error('[Licença] Serviços não iniciaram após ativação:', error?.message || error);
-    });
+// ── IPC: licença (assinatura mensal) ─────────────────────────────────────────
+ipcMain.handle('license:activate', async (_, key) => {
+  if (!key || typeof key !== 'string') {
+    return { ok: false, error: 'Chave não informada.' };
   }
 
-  return result;
-});
+  const normalizedKey = normalizeLicenseKey(key);
 
-ipcMain.handle('license:get-hwid', () => {
-  const hwid = getHardwareId();
-  return { hwid, short: getShortHwid(hwid) };
-});
-
-// Indicador local (sem rede) para a aba de Configurações.
-ipcMain.handle('license:status', () => licenseState || getLocalLicenseStatus());
-
-ipcMain.handle('license:purchase', async () => {
-  try {
-    await shell.openExternal(LICENSE_PURCHASE_URL);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: error?.message || String(error) };
+  // Validação local do formato antes de gastar uma chamada de rede.
+  if (!LICENSE_KEY_PATTERN.test(normalizedKey)) {
+    return { ok: false, error: 'Formato inválido. Use CSH-XXXX-XXXX-XXXX.' };
   }
+
+  // Primeiro consulta: identifica chave inexistente, revogada, expirada ou
+  // que ainda precisa da primeira ativação.
+  const checkResult = await checkLicense(normalizedKey);
+  if (!checkResult) {
+    return { ok: false, error: 'Sem conexão com o servidor. Verifique sua internet.' };
+  }
+  if (checkResult.error) {
+    return { ok: false, error: checkResult.error };
+  }
+  if (checkResult.revoked || checkResult.expired) {
+    return { ok: false, error: checkResult.message || 'Licença indisponível.' };
+  }
+
+  // Já ativada e válida: aceita direto.
+  if (checkResult.valid) {
+    persistActivatedLicense(normalizedKey, checkResult);
+    licenseStatus = {
+      allowed: true,
+      daysLeft: checkResult.daysLeft,
+      expiresAt: checkResult.expiresAt,
+      message: checkResult.message,
+    };
+    return {
+      ok: true,
+      message: checkResult.message,
+      daysLeft: checkResult.daysLeft,
+    };
+  }
+
+  // Primeira utilização: confirma a ativação (inicia os 30 dias).
+  if (checkResult.needsActivation) {
+    const activateResult = await activateLicense(normalizedKey);
+
+    if (!activateResult || activateResult.error) {
+      return { ok: false, error: activateResult?.error || 'Erro ao ativar a licença.' };
+    }
+    if (activateResult.valid) {
+      persistActivatedLicense(normalizedKey, activateResult);
+      licenseStatus = {
+        allowed: true,
+        daysLeft: activateResult.daysLeft,
+        expiresAt: activateResult.expiresAt,
+        message: activateResult.message,
+      };
+      return {
+        ok: true,
+        message: activateResult.message,
+        daysLeft: activateResult.daysLeft,
+      };
+    }
+
+    return { ok: false, error: activateResult.message || 'Não foi possível ativar a chave.' };
+  }
+
+  return { ok: false, error: checkResult.message || 'Chave inválida.' };
+});
+
+ipcMain.handle('license:get', () => {
+  const s = getSettings();
+  return {
+    key: maskLicenseKey(s.licenseKey),
+    expiresAt: s.licenseExpiresAt,
+    daysLeft: s.licenseDaysLeft,
+  };
+});
+
+ipcMain.handle('license:open-app', () => openMainApp());
+
+// Compatibilidade com o badge do modal de Configurações (settingsModal.js):
+// apenas lê o estado em memória, nunca dispara consulta online.
+ipcMain.handle('license:status', () => {
+  const s = getSettings();
+  const status = licenseStatus;
+  const valid = Boolean(status?.allowed);
+
+  return {
+    valid,
+    reason: valid
+      ? (status.offline ? 'offline_grace' : 'active')
+      : (status?.reason || (s.licenseKey ? 'invalid' : 'no_license')),
+    offline: Boolean(status?.offline),
+    daysLeft: Number(status?.daysLeft ?? s.licenseDaysLeft) || 0,
+    expiresAt: status?.expiresAt || s.licenseExpiresAt || '',
+    keyMasked: maskLicenseKey(s.licenseKey),
+    message: status?.message || '',
+  };
 });
 
 /**
