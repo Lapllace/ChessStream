@@ -5,7 +5,7 @@
   "main": "src/main/index.js",
   "author": "Tenebris",
   "license": "SEE LICENSE IN LICENSE.txt",
-  "homepage": "https://github.com/Lapllace/chessstream-hub",
+  "homepage": "https://github.com/Lapllace/chessstream",
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
@@ -31,8 +31,8 @@
     "electron-builder": "^26.18.0"
   },
   "build": {
-    "appId": "com.tenebris.chessstreamhub",
-    "productName": "ChessStream Hub",
+    "appId": "com.tenebris.chessstream",
+    "productName": "ChessStream",
     "copyright": "Copyright © 2026 Tenebris",
     "files": [
       "src/**/*",
@@ -66,14 +66,14 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ChessStream Hub",
+      "shortcutName": "ChessStream",
       "license": "LICENSE.txt"
     },
     "publish": [
       {
         "provider": "github",
         "owner": "Lapllace",
-        "repo": "chessstream-hub",
+        "repo": "ChessStream",
         "releaseType": "release"
       }
     ],
